@@ -1078,6 +1078,7 @@ static NSColor *dtxtCol;
 */
 - (void) setAction: (SEL)aSelector
 {
+  //printf("NSCell setAction\n");
   [NSException raise: NSInternalInconsistencyException
               format: @"attempt to set an action in an NSCell"];
 }
@@ -1406,6 +1407,7 @@ static NSColor *dtxtCol;
 
       if (action)
         {
+          printf("lalala\n");
           return [NSApp sendAction: action to: [self target] from: sender];
         }
     }
@@ -1567,6 +1569,333 @@ static NSColor *dtxtCol;
              ofView: (NSView*)controlView
        untilMouseUp: (BOOL)flag
 {
+  // 7/20/2010: route events to original method if control view doesn't support MT
+  if ([theEvent type] == NSLeftMouseDown && ![controlView supportsMultiTouch])
+  {
+     return [self trackMouseOriginal: theEvent
+                              inRect: cellFrame
+                              ofView: controlView
+                        untilMouseUp: flag];
+  }
+
+  NSApplication *theApp = [NSApplication sharedApplication];
+  unsigned event_mask = NSLeftMouseDownMask | NSLeftMouseUpMask
+    | NSMouseMovedMask | NSLeftMouseDraggedMask | NSOtherMouseDraggedMask
+    | NSRightMouseDraggedMask | SNTouchedMask | NSRightMouseDownMask | NSRightMouseUpMask; //<p>FIXME</p> right mouse down/up added temporarily
+                                                                                           //for testing purpose only
+  NSPoint location = [theEvent locationInWindow];
+  NSPoint point = [controlView convertPoint: location fromView: nil];
+  float delay;
+  float interval;
+  NSPoint last_point = point;
+  BOOL done;
+  BOOL mouseWentUp;
+  //unsigned periodCount = 0;
+  NSEventType eventType = [theEvent type];
+
+  //printf("NSCell Button #%s trackMouse(), _action_mask = %i, event type = %i, x = %f, y = %f\n", [_contents cString], _action_mask, [theEvent type], [theEvent locationInWindow].x, [theEvent locationInWindow].y);
+  printf("NSCell trackMouse()\n");
+
+  NSDebugLLog(@"NSCell", @"cell start tracking in rect %@ initial point %f %f",
+             NSStringFromRect(cellFrame), point.x, point.y);
+
+  //_mouse_down_flags = [theEvent modifierFlags];
+
+  if (eventType == NSLeftMouseDown) {
+      _mouse_down_flags = [theEvent modifierFlags];
+
+     if (![self startTrackingAt: point inView: controlView]) 
+        return NO;
+
+     if (![controlView mouse: point inRect: cellFrame])
+        return NO; // point is not in cell
+
+     if (_action_mask & NSLeftMouseDownMask)
+        [self _sendActionFrom: controlView];
+
+     if (_action_mask & NSPeriodicMask)
+     {
+        printf("NSCell starts periodic events\n");
+        [self getPeriodicDelay: &delay interval: &interval];
+        [NSEvent startPeriodicEventsAfterDelay: delay 
+                                    withPeriod: interval 
+                                         event: theEvent];
+        //[NSEvent startPeriodicEventsAfterDelay: delay withPeriod: interval];
+        event_mask |= NSPeriodicMask;
+     }
+  }
+
+
+  NSDebugLLog(@"NSCell", @"cell get mouse events\n");
+  mouseWentUp = NO;
+  done = NO;
+
+  /***
+  if (theEvent != [NSApp currentEvent])
+    theEvent = [NSApp currentEvent];
+  else {
+    theEvent = [theApp nextEventMatchingMask: event_mask
+                       untilDate: [NSDate distantFuture]
+                       inMode: NSEventTrackingRunLoopMode
+                       dequeue: YES];
+
+    // Deliver other events
+    while (1) {
+       if ([theEvent type] == SNTouched) {
+          // We trapped a touch event, re-deliver it
+          [theApp sendEvent: theEvent];
+          if ([theEvent touchCount] > 1) { // We have a multi-touch event, cancel tracking
+             //done = YES;
+             //if (controlView) {
+             //   [controlView setGotMultiTouch: YES];
+             //}
+             //printf("NSCell loop ending... 1\n");
+             //break;
+          }
+       //} else if (([theEvent type] == NSLeftMouseDown | [theEvent type] == NSLeftMouseUp | [theEvent type] == NSLeftMouseDragged) &&
+       //            ([[[theEvent window] contentView] hitTest: [theEvent locationInWindow]] != controlView)) {
+       } else if (([theEvent type] == NSLeftMouseDown | [theEvent type] == NSLeftMouseUp | [theEvent type] == NSLeftMouseDragged) &&
+                   [[theEvent window] viewForEvent: theEvent] != controlView) {
+          printf("Button #%s got somebody else's mouse event... 1 %s\n", [_contents cString], 
+                                                                         [[[[theEvent window] viewForEvent: theEvent] description] cString]);
+          _crState = 1;
+          [theApp sendEvent: theEvent];
+          return YES;
+          //LABEL1:;
+       } else {
+          break;
+       }
+
+       theEvent = [theApp nextEventMatchingMask: event_mask
+                                      untilDate: [NSDate distantFuture]
+                                         inMode: NSEventTrackingRunLoopMode
+                                        dequeue: YES];
+       LABEL1:;
+    }
+
+
+    while ([theEvent type] == SNTouched) {
+       // We trapped a touch event, re-deliver it
+       [theApp sendEvent: theEvent];
+       if ([theEvent touchCount] > 1) { // We have a multi-touch event, cancel tracking
+          done = YES;
+          //gotMultiTouch = YES;
+          if (controlView) {
+             [controlView setGotMultiTouch: YES];
+          }
+          printf("NSCell loop ending... 1\n");
+          break;
+       }
+       theEvent = [theApp nextEventMatchingMask: event_mask
+                                      untilDate: [NSDate distantFuture]
+                                         inMode: NSEventTrackingRunLoopMode
+                                        dequeue: YES];
+    }
+
+
+  }
+  ***/
+  
+                 
+  //while (!done)
+  //  {
+      //NSEventType eventType;
+      BOOL pointIsInCell;
+
+      //eventType = [theEvent type];
+      //printf("%s %s NSCell loop.. event type = %i\n", [[self description] cString], [_contents cString], eventType);
+
+      if (eventType != NSPeriodic || periodCount == 4)
+        {
+          last_point = point;
+          if (eventType == NSPeriodic)
+            {
+              NSWindow *w = [controlView window];
+
+              /*
+               * Too many periodic events in succession - 
+               * update the mouse location and reset the counter.
+               */
+              location = [w mouseLocationOutsideOfEventStream];
+              periodCount = 0;
+            }
+          else
+            {
+              location = [theEvent locationInWindow];
+            }
+          point = [controlView convertPoint: location fromView: nil];
+          NSDebugLLog(@"NSCell", @"location %f %f\n", location.x, location.y);
+          NSDebugLLog(@"NSCell", @"point %f %f\n", point.x, point.y);
+        }
+      else
+        {
+          periodCount++;
+          NSDebugLLog (@"NSCell", @"cell got a periodic event");
+        }
+
+      /////////////// temporary fix for the mouseLocationOutsideOfEventStream issue ////////////
+      //if (eventType == NSLeftMouseDown || eventType == NSLeftMouseUp || eventType == NSLeftMouseDragged) {
+      //   _temp_last_point = [controlView convertPoint: [theEvent locationInWindow] fromView: nil];
+      //   printf("%s, x = %f, y = %f\n", [[self description] cString], _temp_last_point.x, _temp_last_point.y);
+      //}
+      //point = _temp_last_point;
+      point = [controlView firstMouseLocationInView];
+      ///////////// end of temporary fix ////////////////////
+
+      if (![controlView mouse: point inRect: cellFrame])
+        {
+          NSDebugLLog(@"NSCell", @"point not in cell frame\n");
+
+          pointIsInCell = NO;        
+          if (flag == NO) 
+            {
+              NSDebugLLog(@"NSCell", @"cell return immediately\n");
+              done = YES;
+            }
+        }
+      else
+        {
+          pointIsInCell = YES;
+        }
+
+      if (!done && ![self continueTracking: last_point    // should continue
+                                        at: point         // tracking?
+                                    inView: controlView])
+        {
+          NSDebugLLog(@"NSCell", @"cell stop tracking\n");
+          done = YES;
+        }
+      
+      // Did the mouse go up?
+      if (eventType == NSLeftMouseUp)
+        {
+          NSDebugLLog(@"NSCell", @"cell mouse went up\n");
+          mouseWentUp = YES;
+          done = YES;
+          //if ([theEvent endOfSequence]) {
+          //   [[theEvent window] cleanMouseViewDictionary];
+          //}
+        }
+      else
+        {
+          //printf("pointIsInCell = %i\n", pointIsInCell);
+          if (pointIsInCell && ((eventType == NSLeftMouseDragged
+                          && (_action_mask & NSLeftMouseDraggedMask))
+                          || ((eventType == NSPeriodic)
+                          && (_action_mask & NSPeriodicMask)))) {
+            printf("periodic events sending action...\n");
+            [self _sendActionFrom: controlView];
+          }
+        }
+      
+      /***
+      if (!done) {
+        theEvent = [theApp nextEventMatchingMask: event_mask
+                                       untilDate: [NSDate distantFuture]
+                                          inMode: NSEventTrackingRunLoopMode
+                                         dequeue: YES];
+
+        // Deliver other events
+        while (1) {
+           if ([theEvent type] == SNTouched) {
+              // We trapped a touch event, re-deliver it
+              [theApp sendEvent: theEvent];
+              if ([theEvent touchCount] > 1) { // We have a multi-touch event, cancel tracking
+                 //done = YES;
+                 //if (controlView) {
+                 //   [controlView setGotMultiTouch: YES];
+                 //}
+                 //printf("NSCell loop ending... 1\n");
+                 //break;
+              }
+           //} else if (([theEvent type] == NSLeftMouseDown | [theEvent type] == NSLeftMouseUp | [theEvent type] == NSLeftMouseDragged) &&
+           //        ([[[theEvent window] contentView] hitTest: [theEvent locationInWindow]] != controlView)) {
+           } else if (([theEvent type] == NSLeftMouseDown | [theEvent type] == NSLeftMouseUp | [theEvent type] == NSLeftMouseDragged) &&
+                       [[theEvent window] viewForEvent: theEvent] != controlView) {
+              printf("Button #%s got somebody else's mouse event... 2\n", [_contents cString]);
+              _crState = 2;
+              [theApp sendEvent: theEvent];
+              return YES;
+              //LABEL2:;
+           } else {
+              break;
+           }
+
+           theEvent = [theApp nextEventMatchingMask: event_mask
+                                          untilDate: [NSDate distantFuture]
+                                             inMode: NSEventTrackingRunLoopMode
+                                            dequeue: YES];
+           LABEL2:;
+       }
+
+
+
+        
+        while ([theEvent type] == SNTouched) {
+           // We trapped a touch event, re-deliver it
+           [theApp sendEvent: theEvent];
+           
+           if ([theEvent touchCount] > 1) { // We have a multi-touch event, cancel tracking
+              done = YES;
+              //gotMultiTouch = YES;
+              if (controlView) {
+                 [controlView setGotMultiTouch: YES];
+              }
+              printf("NSCell loop ending... 2\n");
+              break;
+           }
+           theEvent = [theApp nextEventMatchingMask: event_mask
+                                          untilDate: [NSDate distantFuture]
+                                             inMode: NSEventTrackingRunLoopMode
+                                            dequeue: YES];
+        }
+        
+
+      }
+      ***/
+      
+
+    //}
+
+  // Hook called when stop tracking
+  [self stopTracking: last_point
+                  at: point
+              inView: controlView
+           mouseIsUp: mouseWentUp];
+
+  //if (_action_mask & NSPeriodicMask) {
+  if ((_action_mask & NSPeriodicMask) && eventType == NSLeftMouseUp) {
+    //printf("NSCell stops periodic events\n");
+    //[NSEvent stopPeriodicEvents];
+    [NSEvent stopPeriodicEventsWithTrigger: theEvent];
+  }
+
+  if (mouseWentUp)
+    {
+      [self setNextState];
+      if ((_action_mask & NSLeftMouseUpMask)) {
+        //printf("NSCell calling _sendActionFrom\n");
+        [self _sendActionFrom: controlView];
+      }
+    }
+
+  // Return YES if the mouse went up within the cell
+  //if (gotMultiTouch || (mouseWentUp && (flag || [controlView mouse: point inRect: cellFrame])))
+  if (mouseWentUp && (flag || [controlView mouse: point inRect: cellFrame]))
+    {
+      NSDebugLLog(@"NSCell", @"mouse went up in cell\n");
+      return YES;
+    }
+
+  NSDebugLLog(@"NSCell", @"mouse did not go up in cell\n");
+  return NO; // Otherwise return NO
+}
+
+- (BOOL) trackMouseOriginal: (NSEvent*)theEvent
+                     inRect: (NSRect)cellFrame
+                     ofView: (NSView*)controlView
+               untilMouseUp: (BOOL)flag
+{
   NSApplication *theApp = [NSApplication sharedApplication];
   unsigned event_mask = NSLeftMouseDownMask | NSLeftMouseUpMask
     | NSMouseMovedMask | NSLeftMouseDraggedMask | NSOtherMouseDraggedMask
@@ -1720,6 +2049,177 @@ static NSColor *dtxtCol;
   NSDebugLLog(@"NSCell", @"mouse did not go up in cell\n");
   return NO; // Otherwise return NO
 }
+
+/***** NOT USING MODEL 4 *****
+- (BOOL) trackTouch: (NSEvent*)theEvent
+             inRect: (NSRect)cellFrame
+             ofView: (NSView*)controlView
+    untilTouchEnded: (BOOL)flag
+{
+  NSApplication *theApp = [NSApplication sharedApplication];
+  
+  SNTouch *theTouch = [[theEvent touchesForView: controlView] anyObject];
+  NSPoint location = [theTouch locationInWindow];
+  NSPoint point = [controlView convertPoint: location fromView: nil];
+  float delay;
+  float interval;
+  NSPoint last_point = point;
+  BOOL done;
+  BOOL touchEnded;
+
+  _mouse_down_flags = [theEvent modifierFlags];
+  if (![self startTrackingAt: point inView: controlView] && [theTouch phase] == SNTouchPhaseBegan)
+    return NO;
+
+  if (![controlView mouse: point inRect: cellFrame] && [theTouch phase] == SNTouchPhaseBegan)
+    return NO; // point is not in cell
+
+  if ((_action_mask & NSLeftMouseDownMask) 
+      && [theTouch phase] == SNTouchPhaseBegan)
+    [self _sendActionFrom: controlView];
+
+  //if (_action_mask & NSPeriodicMask)
+  if ((_action_mask & NSPeriodicMask) && [theTouch phase] == SNTouchPhaseBegan)
+    {
+      printf("NSCell starts periodic events\n");
+      [self getPeriodicDelay: &delay interval: &interval];
+      [NSEvent startPeriodicEventsAfterDelay: delay withPeriod: interval sender: controlView];
+      //[NSEvent startPeriodicEventsAfterDelay: delay withPeriod: interval];
+    }
+
+  NSDebugLLog(@"NSCell", @"cell get mouse events\n");
+  touchEnded = NO;
+  done = NO;
+  
+                 
+  //while (!done)
+  //  {
+      SNTouchPhase touchPhase;
+      NSEventType eventType;
+      BOOL pointIsInCell;
+
+      touchPhase = [theTouch phase];
+      eventType = [theEvent type];
+
+      if (eventType != NSPeriodic || periodCount == 4)
+        {
+          last_point = point;
+          if (eventType == NSPeriodic)
+            {
+              NSWindow *w = [controlView window];
+
+              //
+              // Too many periodic events in succession - 
+              // update the mouse location and reset the counter.
+              //
+              location = [w mouseLocationOutsideOfEventStream];
+              periodCount = 0;
+            }
+          else
+            {
+              location = [theTouch locationInWindow];
+            }
+          point = [controlView convertPoint: location fromView: nil];
+          NSDebugLLog(@"NSCell", @"location %f %f\n", location.x, location.y);
+          NSDebugLLog(@"NSCell", @"point %f %f\n", point.x, point.y);
+        }
+      else
+        {
+          periodCount++;
+          NSDebugLLog (@"NSCell", @"cell got a periodic event");
+        }
+
+      /////////////// temporary fix for the mouseLocationOutsideOfEventStream issue ////////////
+      if (touchPhase == SNTouchPhaseBegan || touchPhase == SNTouchPhaseEnded || touchPhase == SNTouchPhaseMoved) {
+         _temp_last_point = [controlView convertPoint: [theTouch locationInWindow] fromView: nil];
+      }
+      point = _temp_last_point;
+      ///////////// end of temporary fix ////////////////////
+
+      if (![controlView mouse: point inRect: cellFrame])
+        {
+          NSDebugLLog(@"NSCell", @"point not in cell frame\n");
+
+          pointIsInCell = NO;        
+          if (flag == NO) 
+            {
+              NSDebugLLog(@"NSCell", @"cell return immediately\n");
+              done = YES;
+            }
+        }
+      else
+        {
+          pointIsInCell = YES;
+        }
+
+      if (!done && ![self continueTracking: last_point    // should continue
+                                        at: point         // tracking?
+                                    inView: controlView])
+        {
+          NSDebugLLog(@"NSCell", @"cell stop tracking\n");
+          done = YES;
+        }
+      
+      // Did the mouse go up?
+      if (touchPhase == SNTouchPhaseEnded)
+        {
+          NSDebugLLog(@"NSCell", @"cell mouse went up\n");
+          touchEnded = YES;
+          done = YES;
+          if ([theEvent endOfSequence]) {
+             [[theEvent window] cleanMouseViewDictionary];
+          }
+        }
+      else
+        {
+          printf("pointIsInCell = %i\n", pointIsInCell);
+          if (pointIsInCell && ((touchPhase == SNTouchPhaseMoved
+                          && (_action_mask & NSLeftMouseDraggedMask))
+                          || ((eventType == NSPeriodic)
+                          && (_action_mask & NSPeriodicMask)))) {
+            printf("periodic events sending action...\n");
+            [self _sendActionFrom: controlView];
+          }
+        }
+      
+
+      
+
+    //}
+
+  // Hook called when stop tracking
+  [self stopTracking: last_point
+                  at: point
+              inView: controlView
+           mouseIsUp: touchEnded];
+
+  //if (_action_mask & NSPeriodicMask) {
+  if ((_action_mask & NSPeriodicMask) && touchPhase == SNTouchPhaseEnded) {
+    printf("NSCell stops periodic events\n");
+    [NSEvent stopPeriodicEvents];
+  }
+
+  if (touchEnded)
+    {
+      [self setNextState];
+      if ((_action_mask & NSLeftMouseUpMask)) {
+        //printf("NSCell calling _sendActionFrom\n");
+        [self _sendActionFrom: controlView];
+      }
+    }
+
+  // Return YES if the mouse went up within the cell
+  //if (gotMultiTouch || (mouseWentUp && (flag || [controlView mouse: point inRect: cellFrame])))
+  if (touchEnded && (flag || [controlView mouse: point inRect: cellFrame]))
+    {
+      NSDebugLLog(@"NSCell", @"mouse went up in cell\n");
+      return YES;
+    }
+
+  NSDebugLLog(@"NSCell", @"mouse did not go up in cell\n");
+  return NO; // Otherwise return NO
+}
+***** NOT USING MODEL 4 *****/
 
 /** <p>TODO</p>
  */

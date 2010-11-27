@@ -182,8 +182,20 @@
 // Tracking the Mouse 
 //
 - (void)mouseDown:(NSEvent *)theEvent;
+- (void)mouseUp:(NSEvent *)theEvent;
+- (void)mouseDragged:(NSEvent *)theEvent;
 - (BOOL)ignoresMultiClick;
 - (void)setIgnoresMultiClick:(BOOL)flag;
+
+//
+// Handling touch events
+//
+/***** NOT USING MODEL 4 *****
+- (void) handleSingleTouch: (NSEvent *) theEvent;
+- (void) touchesBeganWithEvent: (NSEvent *) theEvent;
+- (void) touchesMovedWithEvent: (NSEvent *) theEvent;
+- (void) touchesEndedWithEvent: (NSEvent *) theEvent;
+***** NOT USING MODEL 4 *****/
 
 @end
 

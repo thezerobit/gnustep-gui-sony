@@ -104,6 +104,13 @@
 
   // Cache for cursors
   NSMutableDictionary	*cursors;
+
+  // Instance variables to store state info for loop-free event handling
+  NSCursor	*_cursorBeforeDrag;
+  NSPoint	_slidePoint;
+
+  // for sliding dragged image
+  NSEvent	*_eventCausingSlide;
 }
 
 + (id) sharedDragView;

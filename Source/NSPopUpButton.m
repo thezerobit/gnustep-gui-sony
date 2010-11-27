@@ -98,6 +98,8 @@ Class _nspopupbuttonCellClass = 0;
   if ( ! ( self = [super initWithFrame: frameRect] ) )
     return nil;
   
+  _supportsMultiTouch = NO;
+
   [self setPullsDown: flag];
 
   return self;

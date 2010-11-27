@@ -15,7 +15,7 @@ ADDITIONAL_CFLAGS += $(GSCUPS_CFLAGS)
 
 # Additional include directories the compiler should search
 ADDITIONAL_INCLUDE_DIRS += -I../../Headers/Additions -I../../Headers \
-	-I../../Source/$(GNUSTEP_TARGET_DIR)
+	-I../../Source/$(GNUSTEP_TARGET_DIR) -I$(WORKSPACE_ROOT)/src/include
 
 # Additional LDFLAGS to pass to the linker
 ADDITIONAL_LDFLAGS += $(GSCUPS_LDFLAGS)

@@ -3409,6 +3409,7 @@ static inline float computePeriod(NSPoint mouseLocationWin,
   NSRect cellFrame;
   id originalValue;
 
+  printf("NSTableView _trackCellAtColumn\n");
   if (rowIndex == -1 || columnIndex == -1)
     {
       return;
@@ -3448,6 +3449,7 @@ static inline float computePeriod(NSPoint mouseLocationWin,
 			row: rowIndex];
 	}
     }
+
   RELEASE(originalValue);    
   [cell setHighlighted: NO];
   [self setNeedsDisplayInRect: cellFrame];
@@ -3506,41 +3508,71 @@ static inline float computePeriod(NSPoint mouseLocationWin,
   return NO;
 }
 
+//
+// Handling touch events... for testing purpose
+//
+- (void) touchesBegan: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   printf("NSTableView: touchesBeganWithEvent, touch set count = %i\n", [touches count]);
+}
+
+- (void) touchesMoved: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   printf("NSTableView: touchesMovedWithEvent, touch set count = %i\n", [touches count]);
+}
+
+- (void) touchesEnded: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   printf("NSTableView: touchesEndedWithEvent, touch set count = %i\n", [touches count]);
+}
+
 - (void) mouseDown: (NSEvent *)theEvent
 {
-  NSPoint initialLocation = [theEvent locationInWindow];
-  NSPoint location;
-  int clickCount = [theEvent clickCount];
-
-  // Pathological case -- ignore mouse down
-  if ((_numberOfRows == 0) || (_numberOfColumns == 0))
-    {
-      return; 
-    }
+  int clickCount;
+  NSEventType eventType = [theEvent type];
   
-  /* Stop editing if any */
-  if (_textObject != nil)
-    {
-      if (_editedCell != nil 
-          && [_editedCell isEntryAcceptable:[_textObject text]] == NO)
-        {
-          NSBeep();
-          return;
-        }
-      [self validateEditing];
-      [self abortEditing];
-    }  
+  if (eventType == NSLeftMouseDown || eventType == NSLeftMouseDragged || eventType == NSLeftMouseUp)
+     clickCount = [theEvent clickCount];
 
-  // Determine row and column which were clicked
-  location = [self convertPoint: initialLocation fromView: nil];
-  _clickedRow  = [self rowAtPoint: location];
-  _clickedColumn = [self columnAtPoint: location];
+  printf("NSTableView mouseDown\n");
+
+  if (eventType == NSLeftMouseDown)
+  {
+     _initialLocation = [theEvent locationInWindow]; //instance var
+     NSPoint location;
+     //_gotMultiTouch = NO;
+
+     // Pathological case -- ignore mouse down
+     if ((_numberOfRows == 0) || (_numberOfColumns == 0))
+       {
+         return; 
+       }
   
-  if ([theEvent type] == NSLeftMouseDown
+     /* Stop editing if any */
+     if (_textObject != nil)
+       {
+         if (_editedCell != nil 
+             && [_editedCell isEntryAcceptable:[_textObject text]] == NO)
+           {
+             NSBeep();
+             return;
+           }
+         [self validateEditing];
+         [self abortEditing];
+       }  
+
+     // Determine row and column which were clicked
+     location = [self convertPoint: _initialLocation fromView: nil];
+     _clickedRow  = [self rowAtPoint: location];
+     _clickedColumn = [self columnAtPoint: location];
+
+  }
+
+  if ((eventType == NSLeftMouseDown || eventType == NSLeftMouseDragged || eventType == NSLeftMouseUp)
        && clickCount > 1)
     {
       // Double-click event
-
+      printf("double click event\n");
       if (![self isRowSelected: _clickedRow])
         {
 	  return;
@@ -3548,151 +3580,165 @@ static inline float computePeriod(NSPoint mouseLocationWin,
 
       if (![self _isCellEditableColumn: _clickedColumn row: _clickedRow ])
         {
+          printf("cell NOT editable\n");
 	  // Send double-action but don't edit
 	  [self _trackCellAtColumn: _clickedColumn
 			    row: _clickedRow
 			    withEvent: theEvent];
-	  if (_clickedRow != -1)
+	  if (_clickedRow != -1 && eventType == NSLeftMouseUp)
 	    [self sendAction: _doubleAction to: _target];
 	}
       else if (clickCount == 2) // if < 2, dont want to abort editing
         {
+          printf("cell OK to edit\n");
 	  // It is OK to edit column.  Go on, do it.
-          [self editColumn: _clickedColumn
-		   row: _clickedRow
-		   withEvent: theEvent
-		   select: YES];
+          if (eventType == NSLeftMouseDown) {
+             [self editColumn: _clickedColumn
+		      row: _clickedRow
+		      withEvent: theEvent
+		      select: YES];
+          }
 	}
     }
   else 
     {
 #define COMPUTE_NEW_SELECTION do { \
-if (originalRow == -1) \
+if (_originalRow == -1) \
   { \
-    originalRow = currentRow; \
+    _originalRow = _currentRow; \
   } \
-if (currentRow >= 0 && currentRow < _numberOfRows) \
+if (_currentRow >= 0 && _currentRow < _numberOfRows) \
   { \
     computeNewSelection(self, \
-    oldSelectedRows, \
+    _mouseDownOldSelectedRows, \
     _selectedRows, \
-    originalRow, \
-    oldRow, \
-    currentRow, \
+    _originalRow, \
+    _oldRow, \
+    _currentRow, \
     &_selectedRow, \
-    selectionMode); \
+    _selectionMode); \
     [self displayIfNeeded]; \
   } \
 } while (0);
 
       // Selection
-      unsigned int modifiers = [theEvent modifierFlags];
-      unsigned int eventMask = (NSLeftMouseUpMask 
-				| NSLeftMouseDownMask
-				| NSLeftMouseDraggedMask 
-				| NSPeriodicMask);
-      unsigned selectionMode = 0;
       NSPoint mouseLocationWin;
       NSPoint mouseLocationView;
-      NSDate *distantFuture = [NSDate distantFuture];
-      NSEvent *lastEvent;
-      NSIndexSet *oldSelectedRows;
-      BOOL startedPeriodicEvents = NO;
-      BOOL mouseBelowView = NO;
-      BOOL done = NO;
-      BOOL mouseMoved = NO;
-      BOOL dragOperationPossible = [self _isDraggingSource];
-      NSRect visibleRect = [self convertRect: [self visibleRect]
+      //unsigned int eventMask = (NSLeftMouseUpMask 
+	//			   | NSLeftMouseDownMask
+	//			   | NSLeftMouseDraggedMask 
+	//			   | NSPeriodicMask
+        //                         | NSTouchedMask
+        //                         | NSRightMouseDownMask | NSRightMouseUpMask | NSRightMouseDraggedMask); 
+                                     //<p>FIXME</p> right mouse down/up added temporarily for testing purpose only
+      //NSDate *distantFuture = [NSDate distantFuture];
+      //NSEvent *lastEvent;
+      //BOOL done = NO; //to be removed
+
+      if (eventType == NSLeftMouseDown)
+      {
+         unsigned int modifiers = [theEvent modifierFlags];
+
+         _selectionMode = 0;
+         _startedPeriodicEvents = NO;
+         _mouseBelowView = NO;
+         _mouseMoved = NO;
+         _dragOperationPossible = [self _isDraggingSource];
+         NSRect visibleRect = [self convertRect: [self visibleRect]
 				 toView: nil];
-      float minYVisible = NSMinY (visibleRect);
-      float maxYVisible = NSMaxY (visibleRect);
-      float oldPeriod = 0;
-      int originalRow = _clickedRow;
-      int oldRow = -1;
-      int currentRow = -1;
-      BOOL getNextEvent = YES;
-      BOOL sendAction = NO;
+         _minYVisible = NSMinY (visibleRect);
+         _maxYVisible = NSMaxY (visibleRect);
+         _oldPeriod = 0;
+         _originalRow = _clickedRow;
+         _oldRow = -1;
+         _currentRow = -1;
+         //_getNextEvent = YES;
+         _sendAction = NO;
 
-      if (_allowsMultipleSelection == YES)
-	{
-	  selectionMode |= ALLOWS_MULTIPLE;
-	}
+         if (_allowsMultipleSelection == YES)
+	   {
+	     _selectionMode |= ALLOWS_MULTIPLE;
+	   }
 
-      if (_allowsEmptySelection == YES)
-	{
-	  selectionMode |= ALLOWS_EMPTY;
-	}
+         if (_allowsEmptySelection == YES)
+	   {
+	     _selectionMode |= ALLOWS_EMPTY;
+	   }
       
-      if (modifiers & NSShiftKeyMask)
-	{
-	  selectionMode |= SHIFT_DOWN;
-	}
+         if (modifiers & NSShiftKeyMask)
+	   {
+	     _selectionMode |= SHIFT_DOWN;
+	   }
       
-      if (![_selectedRows containsIndex: _clickedRow])
-	{
-	  selectionMode |= ADDING_ROW;
-	}
+         if (![_selectedRows containsIndex: _clickedRow])
+	   {
+	     _selectionMode |= ADDING_ROW;
+	   }
 
-      if (modifiers & NSControlKeyMask)
-	{
-	  selectionMode |= CONTROL_DOWN;
-	  if (_allowsMultipleSelection == YES && _selectedRow != -1)
-	    {
-	      originalRow = _selectedRow;
-	      selectionMode |= SHIFT_DOWN;
-	      selectionMode |= ADDING_ROW;
-	    }
-	}
+         if (modifiers & NSControlKeyMask)
+	   {
+	     _selectionMode |= CONTROL_DOWN;
+	     if (_allowsMultipleSelection == YES && _selectedRow != -1)
+	       {
+	         _originalRow = _selectedRow;
+	         _selectionMode |= SHIFT_DOWN;
+	         _selectionMode |= ADDING_ROW;
+	       }
+	   }
       
-      // is the delegate ok for a new selection ?
-      if ([self _shouldSelectionChange] == NO)
-	{
-	  return;
-	}
+         // is the delegate ok for a new selection ?
+         if ([self _shouldSelectionChange] == NO)
+	   {
+	     return;
+	   }
 
-      // if we are in column selection mode, stop it
-      [self _setSelectingColumns: NO];
+         // if we are in column selection mode, stop it
+         [self _setSelectingColumns: NO];
 
-      // let's sort the _selectedRows
-      oldSelectedRows = [_selectedRows copy];
-      lastEvent = theEvent;
+         // let's sort the _selectedRows
+         _mouseDownOldSelectedRows = [_selectedRows copy];
+         
+      }
 
-      while (done != YES)
-	{
+      //lastEvent = theEvent;
+
+      //while (done != YES)
+	//{
 	  /*
 	    Wrap each iteration in an autorelease pool. Otherwise, we end
 	    up allocating huge amounts of objects if the button is held
 	    down for a long time.
 	  */
 	  CREATE_AUTORELEASE_POOL(arp);
-	  NSEventType eventType = [lastEvent type];
+	  //NSEventType eventType = [theEvent type];
 	  
-	  mouseLocationWin = [lastEvent locationInWindow]; 
+	  mouseLocationWin = [theEvent locationInWindow]; 
 	  mouseLocationView = [self convertPoint: mouseLocationWin 
 					    fromView: nil];
 	
 	  switch (eventType)
 	    {
 	    case NSLeftMouseUp:
-	      if ((mouseLocationWin.y > minYVisible) 
-		  && (mouseLocationWin.y < maxYVisible))
+	      if ((mouseLocationWin.y > _minYVisible) 
+		  && (mouseLocationWin.y < _maxYVisible))
 		{
 		  // mouse up within table
-		  if (startedPeriodicEvents == YES)
+		  if (_startedPeriodicEvents == YES)
 		    {
-		      [NSEvent stopPeriodicEvents];
-		      startedPeriodicEvents = NO;
+		      //[NSEvent stopPeriodicEvents];
+                      [NSEvent stopPeriodicEventsWithTrigger: theEvent];
+		      _startedPeriodicEvents = NO;
 		    }
 		  mouseLocationView.x = _bounds.origin.x;
-		  oldRow = currentRow;
-		  currentRow = [self rowAtPoint: mouseLocationView];
+		  _oldRow = _currentRow;
+		  _currentRow = [self rowAtPoint: mouseLocationView];
 		  
-		  if (oldRow != currentRow)
+		  if (_oldRow != _currentRow)
 		    {
 		      COMPUTE_NEW_SELECTION;
 		    }
 		  
-		  if (dragOperationPossible == YES)
+		  if (_dragOperationPossible == YES)
 		    {
 		      /*
 		       * a dragging operation is still possible so
@@ -3712,28 +3758,29 @@ if (currentRow >= 0 && currentRow < _numberOfRows) \
 		  // Mouse dragged out of the table
 		  // we don't care
 		}
-	      done = YES;
+	      //done = YES;
 	      break;
 
 	    case NSLeftMouseDown:
 	    case NSLeftMouseDragged:
-	      if (fabs(mouseLocationWin.x - initialLocation.x) > 1
-	          || fabs(mouseLocationWin.y - initialLocation.y) > 1)
+              //printf("NSTableView case NSLeftMouseDown/Dragged\n");
+	      if (fabs(mouseLocationWin.x - _initialLocation.x) > 1
+	          || fabs(mouseLocationWin.y - _initialLocation.y) > 1)
 		{
-		  mouseMoved = YES;
+		  _mouseMoved = YES;
 		}
 
-	      if (dragOperationPossible == YES)
+	      if (_dragOperationPossible == YES)
 		{
 		  if ([_selectedRows containsIndex:_clickedRow] == NO
  		      || (_verticalMotionDrag == NO
- 			  && fabs(mouseLocationWin.y - initialLocation.y) > 2))
+ 			  && fabs(mouseLocationWin.y - _initialLocation.y) > 2))
 		    {
-		      dragOperationPossible = NO;
+		      _dragOperationPossible = NO;
 		    }
- 		  else if ((fabs(mouseLocationWin.x - initialLocation.x) >= 4)
+ 		  else if ((fabs(mouseLocationWin.x - _initialLocation.x) >= 4)
  			   || (_verticalMotionDrag
- 			       && fabs(mouseLocationWin.y - initialLocation.y) >= 4))
+ 			       && fabs(mouseLocationWin.y - _initialLocation.y) >= 4))
 		    {
 		      if ([self _startDragOperationWithEvent: theEvent])
 			{
@@ -3741,24 +3788,25 @@ if (currentRow >= 0 && currentRow < _numberOfRows) \
 			}
 		      else
 			{
-			  dragOperationPossible = NO;
+			  _dragOperationPossible = NO;
 			}
 		    }
 		}
-	      else if ((mouseLocationWin.y > minYVisible) 
-		       && (mouseLocationWin.y < maxYVisible))
+	      else if ((mouseLocationWin.y > _minYVisible) 
+		       && (mouseLocationWin.y < _maxYVisible))
 		{
 		  // mouse dragged within table
-		  if (startedPeriodicEvents == YES)
+		  if (_startedPeriodicEvents == YES)
 		    {
-		      [NSEvent stopPeriodicEvents];
-		      startedPeriodicEvents = NO;
+		      //[NSEvent stopPeriodicEvents];
+                      [NSEvent stopPeriodicEventsWithTrigger: theEvent];
+		      _startedPeriodicEvents = NO;
 		    }
 
 		  mouseLocationView.x = _bounds.origin.x;
-		  oldRow = currentRow;
-		  currentRow = [self rowAtPoint: mouseLocationView];
-		  if (oldRow != currentRow)
+		  _oldRow = _currentRow;
+		  _currentRow = [self rowAtPoint: mouseLocationView];
+		  if (_oldRow != _currentRow)
 		    {
 		      COMPUTE_NEW_SELECTION;
 		    }
@@ -3775,16 +3823,18 @@ if (currentRow >= 0 && currentRow < _numberOfRows) \
 		      tb = [_tableColumns objectAtIndex: _clickedColumn];
 		      cell = [tb dataCellForRow: _clickedRow];
 		      
+                      printf("NSTableView _trackCellAtColumn... begin\n");
 		      [self _trackCellAtColumn: _clickedColumn
 				row: _clickedRow
 				withEvent: theEvent];
+                      printf("NSTableView _trackCellAtColumn... end\n");
 
 		      if ([[cell class] prefersTrackingUntilMouseUp])
 		        {
 		          /* the mouse could have gone up outside of the cell
 		           * avoid selecting the row under mouse cursor */ 
-			  sendAction = YES;
-			  done = YES;
+			  _sendAction = YES;
+			  //done = YES;
 			}
 		    }
 		  /*
@@ -3792,61 +3842,65 @@ if (currentRow >= 0 && currentRow < _numberOfRows) \
 		   * a change to the currentEvent we may need to loop over
 		   * the current event
 		   */ 
-		  getNextEvent = (lastEvent == [NSApp currentEvent]);
+		  //_getNextEvent = (lastEvent == [NSApp currentEvent]);
 		}
 	      else
 		{
 		  // Mouse dragged out of the table
 		  float period = computePeriod(mouseLocationWin, 
-					       minYVisible, 
-					       maxYVisible);
+					       _minYVisible, 
+					       _maxYVisible);
 
-		  if (startedPeriodicEvents == YES)
+		  if (_startedPeriodicEvents == YES)
 		    {
 		      /* Check - if the mouse did not change zone, 
 			 we do nothing */
-		      if (period == oldPeriod)
+		      if (period == _oldPeriod)
 			break;
 
-		      [NSEvent stopPeriodicEvents];
+		      //[NSEvent stopPeriodicEvents];
+                      [NSEvent stopPeriodicEventsWithTrigger: theEvent];
 		    }
 		  /* Start periodic events */
-		  oldPeriod = period;
-		  [NSEvent startPeriodicEventsAfterDelay: 0
-			   withPeriod: oldPeriod];
-		  startedPeriodicEvents = YES;
-		  if (mouseLocationWin.y <= minYVisible) 
-		    mouseBelowView = YES;
+		  _oldPeriod = period;
+		  //[NSEvent startPeriodicEventsAfterDelay: 0
+		  //         withPeriod: _oldPeriod];
+                  [NSEvent startPeriodicEventsAfterDelay: 0 
+                           withPeriod: _oldPeriod 
+                                event: theEvent];
+		  _startedPeriodicEvents = YES;
+		  if (mouseLocationWin.y <= _minYVisible) 
+		    _mouseBelowView = YES;
 		  else
-		    mouseBelowView = NO;
+		    _mouseBelowView = NO;
 		}
 	      break;
 	    case NSPeriodic:
-	      if (mouseBelowView == YES)
+	      if (_mouseBelowView == YES)
 		{
-		  if (currentRow == -1 && oldRow != -1)
-		    currentRow = oldRow + 1;
+		  if (_currentRow == -1 && _oldRow != -1)
+		    _currentRow = _oldRow + 1;
 
-		  if (currentRow != -1 && currentRow < _numberOfRows - 1)
+		  if (_currentRow != -1 && _currentRow < _numberOfRows - 1)
 		    {
-		      oldRow = currentRow;
-		      currentRow++;
-		      [self scrollRowToVisible: currentRow];
-		      if (dragOperationPossible == NO)
+		      _oldRow = _currentRow;
+		      _currentRow++;
+		      [self scrollRowToVisible: _currentRow];
+		      if (_dragOperationPossible == NO)
 			COMPUTE_NEW_SELECTION;
 		    }
 		}
 	      else
 		{
-		  if (currentRow == -1 && oldRow != -1)
-		    currentRow = oldRow - 1;
+		  if (_currentRow == -1 && _oldRow != -1)
+		    _currentRow = _oldRow - 1;
 
-		  if (currentRow > 0)
+		  if (_currentRow > 0)
 		    {
-		      oldRow = currentRow;
-		      currentRow--;
-		      [self scrollRowToVisible: currentRow];
-		      if (dragOperationPossible == NO)
+		      _oldRow = _currentRow;
+		      _currentRow--;
+		      [self scrollRowToVisible: _currentRow];
+		      if (_dragOperationPossible == NO)
 			COMPUTE_NEW_SELECTION;
 		    }
 		}
@@ -3855,57 +3909,68 @@ if (currentRow >= 0 && currentRow < _numberOfRows) \
 	      break;
 	    }
 	  
+          /***
 	  if (done == NO)
 	    {
-	      /* in certain cases we are working with events that have already
-	       * occured and been dequeued by NSCell classes, in these cases
-	       * getNextEvent is set to NO, use the current event.
-	       */
-	      if (getNextEvent == YES)
+	      // in certain cases we are working with events that have already
+	      // occured and been dequeued by NSCell classes, in these cases
+	      // getNextEvent is set to NO, use the current event.
+	      //
+	      if (_getNextEvent == YES)
 	        {
-		  lastEvent = [NSApp nextEventMatchingMask: eventMask 
-				 untilDate: distantFuture
-				 inMode: NSEventTrackingRunLoopMode 
-				 dequeue: YES]; 
+		  //lastEvent = [NSApp nextEventMatchingMask: eventMask 
+			//	 untilDate: distantFuture
+			//	 inMode: NSEventTrackingRunLoopMode 
+			//	 dequeue: YES]; 
 		}
 	      else
 		{
 		  lastEvent = [NSApp currentEvent];
-		  getNextEvent = YES;
+		  _getNextEvent = YES;
 		}
 	    }
+            ***/
 	  IF_NO_GC(DESTROY(arp));
-	}
+	//} //end of while
 
-      if (startedPeriodicEvents == YES)
-	[NSEvent stopPeriodicEvents];
+      if (eventType == NSLeftMouseUp)
+      {
+         if (_startedPeriodicEvents == YES) {
+	   //[NSEvent stopPeriodicEvents];
+           [NSEvent stopPeriodicEventsWithTrigger: theEvent];
+         }
 
-      if (![_selectedRows isEqualToIndexSet: oldSelectedRows])
-	{
-	  [self _postSelectionDidChangeNotification];
-	}
+         if (![_selectedRows isEqualToIndexSet: _mouseDownOldSelectedRows])
+	   {
+	     [self _postSelectionDidChangeNotification];
+	   }
       
-      RELEASE(oldSelectedRows);
+         RELEASE(_mouseDownOldSelectedRows);
 
-      if (!mouseMoved)
-        sendAction = YES;
+         //if (!_mouseMoved && !_gotMultiTouch)
+         if (!_mouseMoved)
+           _sendAction = YES;
 
-      /* If this was a simple click (ie. no dragging), we send our action. */
-      if (sendAction)
-	{
-	  /*
-	  _clickedRow and _clickedColumn are already set at the start of
-	  this function.
+         /* If this was a simple click (ie. no dragging), we send our action. */
+         if (_sendAction)
+	   {
+             //printf("NSTableView _sendAction == YES\n");
+	     /*
+	     _clickedRow and _clickedColumn are already set at the start of
+	     this function.
 
-	  TODO: should we ask the data source/column for the cell for this
-	  row/column and check whether it has its own action/target?
-	  */
-	  if (_clickedRow != -1)
-	    [self sendAction: _action  to: _target];
-	}
-    }
+	     TODO: should we ask the data source/column for the cell for this
+	     row/column and check whether it has its own action/target?
+	     */
+	     if (_clickedRow != -1)
+	       [self sendAction: _action  to: _target];
+	   }
+      }
+
+    } //end of ELSE (single click)
   
-  _clickedRow = _selectedRow;
+  if (eventType == NSLeftMouseUp)
+     _clickedRow = _selectedRow;
 }
 
 
@@ -4010,6 +4075,7 @@ static BOOL selectContiguousRegion(NSTableView *self,
    unsigned int i;
    BOOL gotMovementKey = NO;
    
+   printf("NSTableView keyDown\n");
    // will not contain partial rows.
    visRows = visRect.size.height / [self rowHeight]; 
 

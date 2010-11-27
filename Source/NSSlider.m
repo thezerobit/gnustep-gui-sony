@@ -262,6 +262,24 @@ static Class cellClass;
   return YES;
 }
 
+//
+// Handling touch events... for testing purpose
+//
+- (void) touchesBegan: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   printf("NSSlider: touchesBeganWithEvent, touch set count = %i\n", [touches count]);
+}
+
+- (void) touchesMoved: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   printf("NSSlider: touchesMovedWithEvent, touch set count = %i\n", [touches count]);
+}
+
+- (void) touchesEnded: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   printf("NSSlider: touchesEndedWithEvent, touch set count = %i\n", [touches count]);
+}
+
 - (void) keyDown:(NSEvent *)ev
 {
   NSString *characters = [ev characters];

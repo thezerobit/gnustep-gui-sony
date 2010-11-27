@@ -172,6 +172,8 @@ enum {
   NSMenu *_menu;
   id _represented_object; 
   void *_reserved1;
+  unsigned periodCount;
+  NSPoint _temp_last_point;
 }
 
 //
@@ -398,6 +400,18 @@ enum {
 	    inRect:(NSRect)cellFrame
 	    ofView:(NSView *)controlView
 	    untilMouseUp:(BOOL)flag;
+
+- (BOOL) trackMouseOriginal: (NSEvent*)theEvent
+                     inRect: (NSRect)cellFrame
+                     ofView: (NSView*)controlView
+               untilMouseUp: (BOOL)flag;
+
+/***** NOT USING MODEL 4 *****
+- (BOOL)trackTouch:(NSEvent *)theEvent
+	    inRect:(NSRect)cellFrame
+	    ofView:(NSView *)controlView
+	    untilTouchEnded:(BOOL)flag;
+***** NOT USING MODEL 4 *****/
 
 //
 // Managing the Cursor 

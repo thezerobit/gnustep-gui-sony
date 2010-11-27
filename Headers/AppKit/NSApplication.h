@@ -38,7 +38,8 @@
 #ifndef _GNUstep_H_NSApplication
 #define _GNUstep_H_NSApplication
 #import <GNUstepBase/GSVersionMacros.h>
-
+#include "application_manager.h"
+//static void event_handler(application_event_t);
 #include <AppKit/NSResponder.h>
 
 @class NSArray;

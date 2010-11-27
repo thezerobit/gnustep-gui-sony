@@ -55,13 +55,13 @@ ADDITIONAL_OBJCFLAGS = -Wall
 
 # Additional include directories the compiler should search
 ADDITIONAL_INCLUDE_DIRS += -I../Headers/Additions -I../Headers \
-   -I./$(GNUSTEP_TARGET_DIR)
+   -I./$(GNUSTEP_TARGET_DIR) -I$(WORKSPACE_ROOT)/src/include
 
 # Additional LDFLAGS to pass to the linker
-# ADDITIONAL_LDFLAGS = 
+  ADDITIONAL_LDFLAGS = -lapplication_manager
 
 # Additional library directories the linker should search
-# ADDITIONAL_LIB_DIRS = 
+  ADDITIONAL_LIB_DIRS = -L$(TARGET_ROOT)/lib
 
 #
 # Sparc systems cannot load tiff files due to some problem compiling

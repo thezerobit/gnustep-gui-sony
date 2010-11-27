@@ -463,6 +463,24 @@ static NSNotificationCenter *nc;
   SET_DELEGATE_NOTIFICATION(WillDismiss);
 }
 
+//
+// Handling touch events... for testing purpose
+//
+- (void) touchesBegan: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   printf("NSComboBox: touchesBeganWithEvent, touch set count = %i\n", [touches count]);
+}
+
+- (void) touchesMoved: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   printf("NSComboBox: touchesMovedWithEvent, touch set count = %i\n", [touches count]);
+}
+
+- (void) touchesEnded: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   printf("NSComboBox: touchesEndedWithEvent, touch set count = %i\n", [touches count]);
+}
+
 // Overridden
 - (void) mouseDown: (NSEvent*)theEvent
 {
@@ -470,9 +488,15 @@ static NSNotificationCenter *nc;
   // buttonClicked is set to the value NO when the click occurs in the text cell
   // and to the value YES when it occurs in the button cell.
   
+  //printf("NSComboBox mouseDown()\n");
   buttonClicked = [_cell trackMouse: theEvent inRect: [self bounds] 
     ofView: self untilMouseUp: YES];
   
+  //if (buttonClicked)
+  //   printf("NSComboBoxCell returns YES\n");
+  //else
+  //   printf("NSComboBoxCell returns NO\n");
+
   if (!buttonClicked)
     [super mouseDown: theEvent];
 }

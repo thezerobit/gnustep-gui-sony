@@ -38,11 +38,14 @@
 
 #include <AppKit/NSGraphicsContext.h>
 #include <AppKit/NSResponder.h>
+#include <AppKit/SNTouch.h>
 
 @class NSArray;
 @class NSData;
 @class NSDate;
 @class NSDictionary;
+@class SNGestureRecognizer;
+@class NSMutableDictionary;
 @class NSMutableArray;
 @class NSNotification;
 @class NSString;
@@ -179,6 +182,9 @@ APPKIT_EXPORT NSSize NSTokenSize;
   int           _gstate;
   id            _defaultButtonCell;
   NSGraphicsContext *_context;
+  //NSMutableDictionary *_touchViewDictionary;
+  NSMutableDictionary *_mouseViewDictionary;
+  NSView        *_firstViewTouched; //First view touched in multi-touch sequence
 
   NSScreen      *_screen;
   NSColor       *_backgroundColor;
@@ -193,6 +199,8 @@ APPKIT_EXPORT NSSize NSTokenSize;
   NSRect        _rectNeedingFlush;
   NSMutableArray *_rectsBeingDrawn;
   unsigned	_disableFlushWindow;
+
+  id   		_dragView;
   
   NSWindowDepth _depthLimit;
   NSWindowController *_windowController;
@@ -328,6 +336,11 @@ APPKIT_EXPORT NSSize NSTokenSize;
 - (NSRect) frame;
 
 /**
+ * Returns the window number
+ */
+- (int) windowNum;
+
+/**
  * <p>Sets the frame for the receiver to frameRect and if flag is YES causes
  * the window contents to be refreshed.  The value of frameRect is the
  * desired on-screen size and position of the window including all
@@ -340,6 +353,9 @@ APPKIT_EXPORT NSSize NSTokenSize;
  */
 - (void) setFrame: (NSRect)frameRect
 	  display: (BOOL)flag;
+
+- (void) cleanMouseViewDictionary;
+- (NSView*) viewForMouseEvent: (NSEvent*)theEvent;
 
 /**
  * Sets the origin (bottom left corner) of the receiver's frame to be the
@@ -545,6 +561,10 @@ APPKIT_EXPORT NSSize NSTokenSize;
 		       beforeEvent: (NSEvent*)lastEvent;
 - (void) postEvent: (NSEvent*)event
 	   atStart: (BOOL)flag;
+- (void) sendTouchesToGestureRecognizers: (NSSet *)touches 
+                               withEvent: (NSEvent *)theEvent
+                                 inPhase: (SNTouchPhase)phase
+                                  inView: (NSView *)aView;
 - (void) sendEvent: (NSEvent*)theEvent;
 - (BOOL) tryToPerform: (SEL)anAction with: (id)anObject;
 - (void) keyDown: (NSEvent*)theEvent;

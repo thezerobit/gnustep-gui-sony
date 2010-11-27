@@ -22,6 +22,8 @@
 #  If not, see <http://www.gnu.org/licenses/> or write to the 
 #  Free Software Foundation, 51 Franklin Street, Fifth Floor, 
 #  Boston, MA 02110-1301, USA.
+include ../../../../../../target/defs.mk
+include $(BASE_DIR)/src/defs.mk
 
 ifeq ($(GNUSTEP_MAKEFILES),)
  GNUSTEP_MAKEFILES := $(shell gnustep-config --variable=GNUSTEP_MAKEFILES 2>/dev/null)
@@ -68,7 +70,7 @@ ifeq ($(doc), yes)
 SUBPROJECTS += Documentation
 endif
 
--include GNUmakefile.preamble
+include GNUmakefile.preamble
 
 include $(GNUSTEP_MAKEFILES)/aggregate.make
 

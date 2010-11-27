@@ -167,7 +167,6 @@
     }
 }
 
-
 /*
  * Forwarding event messages
  */
@@ -236,6 +235,7 @@
 
 - (void) mouseDown: (NSEvent*)theEvent
 {
+  //printf("NSResponder mouseDown\n");
   if (_next_responder)
     [_next_responder mouseDown: theEvent];
   else
@@ -319,6 +319,46 @@
     [_next_responder scrollWheel: theEvent];
   else
     [self noResponderFor: @selector(scrollWheel:)];
+}
+
+- (void) periodicEvent: (NSEvent*)theEvent
+{
+  if (_next_responder)
+    [_next_responder periodicEvent: theEvent];
+  else
+    [self noResponderFor: @selector(periodicEvent:)];
+}
+
+- (void) touchesBegan: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+  if (_next_responder)
+    [_next_responder touchesBegan: touches withEvent: theEvent];
+  else
+    [self noResponderFor: @selector(touchesBegan:)];
+}
+
+- (void) touchesMoved: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+  if (_next_responder)
+    [_next_responder touchesMoved: touches withEvent: theEvent];
+  else
+    [self noResponderFor: @selector(touchesMoved:)];
+}
+
+- (void) touchesEnded: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+  if (_next_responder)
+    [_next_responder touchesEnded: touches withEvent: theEvent];
+  else
+    [self noResponderFor: @selector(touchesEnded:)];
+}
+
+- (void) touchesCancelled: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+  if (_next_responder)
+    [_next_responder touchesCancelled: touches withEvent: theEvent];
+  else
+    [self noResponderFor: @selector(touchesCancelled:)];
 }
 
 /*

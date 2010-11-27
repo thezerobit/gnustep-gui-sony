@@ -166,6 +166,7 @@ static Class eventClass;
                      clickCount: (int)clickNum
                        pressure: (float)pressureValue
 {
+  //printf("NSEvent + (NSEvent*) mouseEventWithType\n");
   NSEvent *e;
 
   if (!(NSEventMaskFromType(type) & GSMouseEventMask))
@@ -204,6 +205,7 @@ static Class eventClass;
                          deltaY: (float)deltaY
                          deltaZ: (float)deltaZ
 {
+  //printf("mouseEventWithType_2\n");
   NSEvent *e;
 
   if (!(NSEventMaskFromType(type) & GSMouseEventMask))
@@ -232,11 +234,40 @@ static Class eventClass;
   return e;
 }
 
++ (NSEvent*) touchEventWithType: (NSEventType)type
+                        touches: (NSArray*)touchArray
+                  modifierFlags: (unsigned int)flags
+                      timestamp: (NSTimeInterval)time
+                   windowNumber: (int)windowNum
+                        context: (NSGraphicsContext*)context
+{
+  NSEvent *e;
+
+  if (!(NSEventMaskFromType(type) & GSMouseEventMask))
+    [NSException raise: NSInvalidArgumentException
+                format: @"mouseEvent with wrong type"];
+
+  e = (NSEvent*)NSAllocateObject(self, 0, NSDefaultMallocZone());
+  if (self != eventClass)
+    e = [e init];
+  AUTORELEASE(e);
+
+  e->event_type = type;
+  e->touches = RETAIN(touchArray);
+  e->modifier_flags = flags;
+  e->event_time = time;
+  e->window_num = windowNum;
+  e->event_context = context;
+
+  return e;
+}
+
 /**
  * Returns the current mouse location.
  */
 + (NSPoint) mouseLocation
 {
+  //printf("NSEvent mouseLocation\n"); //never printed...
   return [GSCurrentServer() mouselocation];
 }
 
@@ -274,16 +305,47 @@ static Class eventClass;
   return e;
 }
 
++ (NSEvent*) otherEventWithType: (NSEventType)type
+                       location: (NSPoint)location
+                  modifierFlags: (unsigned int)flags
+                      timestamp: (NSTimeInterval)time
+                   windowNumber: (int)windowNum
+                           view: (NSView*)view
+                          mouse: (NSUInteger)mouseId
+                        context: (NSGraphicsContext*)context
+                        subtype: (short)subType
+                          data1: (int)data1
+                          data2: (int)data2
+{
+  NSEvent *e;
+
+  e = [self otherEventWithType: type
+                      location: location
+                 modifierFlags: flags
+                     timestamp: time
+                  windowNumber: windowNum
+                       context: context
+                       subtype: subType
+                         data1: data1
+                         data2: data2];
+
+  e->view = RETAIN(view);
+  e->mouse_id = mouseId;
+
+  return e;
+}
+
 /*
  * Requesting Periodic Events
  */
 + (void) startPeriodicEventsAfterDelay: (NSTimeInterval)delaySeconds
                             withPeriod: (NSTimeInterval)periodSeconds
 {
+  printf("NSEvent startPeriodicEventsAfterDelay\n"); //printed once
   NSTimer             *timer;
   NSMutableDictionary *dict = GSCurrentThreadDictionary();
 
-  NSDebugLLog (@"NSEvent", @"startPeriodicEventsAfterDelay: withPeriod: ");
+  //NSDebugLLog (@"NSEvent", @"startPeriodicEventsAfterDelay: withPeriod: ");
 
   if ([dict objectForKey: timerKey])
     [NSException raise: NSInternalInconsistencyException
@@ -298,7 +360,8 @@ static Class eventClass;
   timer = [NSTimer timerWithTimeInterval: delaySeconds
                    target: self
                    selector: @selector(_registerRealTimer:)
-                   userInfo: [NSNumber numberWithDouble: periodSeconds]
+                   //userInfo: [NSNumber numberWithDouble: periodSeconds]
+                   userInfo: [NSArray arrayWithObjects:[NSNumber numberWithDouble: periodSeconds], nil]
                    repeats: NO];
 
   [[NSRunLoop currentRunLoop] addTimer: timer
@@ -306,21 +369,93 @@ static Class eventClass;
   [dict setObject: timer forKey: timerKey];
 }
 
+/*
+ * Requesting Periodic Events with trigger event information
+ */
++ (void) startPeriodicEventsAfterDelay: (NSTimeInterval)delaySeconds
+                            withPeriod: (NSTimeInterval)periodSeconds
+                                 event: (NSEvent*)triggerEvent;
+{
+  printf("NSEvent startPeriodicEventsAfterDelay with trigger event\n"); //printed once
+  NSTimer             *timer;
+  NSMutableDictionary *dict = GSCurrentThreadDictionary();
+
+  //NSDebugLLog (@"NSEvent", @"startPeriodicEventsAfterDelay: withPeriod: ");
+
+  /**
+  if ([dict objectForKey: timerKey]) {
+    [NSException raise: NSInternalInconsistencyException
+                format: @"Periodic events are already being generated for "
+                        @"this thread %x", GSCurrentThread()];
+  }
+  **/
+
+  NSNumber *viewMouseKey = [NSNumber numberWithUnsignedLongLong: 
+                                     ((unsigned long long int)[triggerEvent view] << 32 | 
+                                      (unsigned long long int)[triggerEvent mouse])];
+
+  if ([dict objectForKey: viewMouseKey]) {
+    [NSException raise: NSInternalInconsistencyException
+                format: @"Periodic events are already being generated for "
+                        @"this mouse press on this view"];
+  }
+
+  /*
+   *  Register a timer that will fire in delaySeconds.
+   *  This timer will fire the first event and register
+   *  a repeat timer that will send the following events
+   */
+  timer = [NSTimer timerWithTimeInterval: delaySeconds
+                                  target: self
+                                selector: @selector(_registerRealTimer:)
+                                //userInfo: [NSNumber numberWithDouble: periodSeconds]
+                                userInfo: [NSArray arrayWithObjects:[NSNumber numberWithDouble: periodSeconds], 
+                                                                    triggerEvent, 
+                                                                    nil]
+                                 repeats: NO];
+
+  [[NSRunLoop currentRunLoop] addTimer: timer
+                               //forMode: NSEventTrackingRunLoopMode];
+                               forMode: NSDefaultRunLoopMode];
+
+  [dict setObject: timer forKey: viewMouseKey];
+}
+
 + (void) _timerFired: (NSTimer*)timer
 {
+  //printf("NSEvent _timerFired\n"); //printed continuously after _registerRealTimer
   NSTimeInterval timeInterval;
   NSEvent        *periodicEvent;
+  NSEvent *triggerEvent;
+
+  if ([[timer userInfo] count] > 1) { //with trigger event information
+     triggerEvent = [[timer userInfo] objectAtIndex: 1];
+  }
 
   timeInterval = [[NSDate date] timeIntervalSinceReferenceDate];
-  periodicEvent = [self otherEventWithType: NSPeriodic
-                                  location: NSZeroPoint
-                             modifierFlags: 0
-                                 timestamp: timeInterval
-                              windowNumber: 0
-                                   context: [NSApp context]
-                                   subtype: 0
-                                     data1: 0
-                                     data2: 0];
+  if ([[timer userInfo] count] > 1) { //with trigger event information
+     periodicEvent = [self otherEventWithType: NSPeriodic
+                                     location: NSZeroPoint
+                                modifierFlags: 0
+                                    timestamp: timeInterval
+                                 windowNumber: [triggerEvent windowNumber]
+                                         view: [triggerEvent view]
+                                        mouse: [triggerEvent mouse]
+                                      context: [NSApp context]
+                                      subtype: 0
+                                        data1: 0
+                                        data2: 0];
+  } else {
+     periodicEvent = [self otherEventWithType: NSPeriodic
+                                     location: NSZeroPoint
+                                modifierFlags: 0
+                                    timestamp: timeInterval
+                                 windowNumber: 0
+                                      context: [NSApp context]
+                                      subtype: 0
+                                        data1: 0
+                                        data2: 0];
+  }
 
   NSDebugLLog (@"NSEvent", @"_timerFired: ");
   [NSApp postEvent: periodicEvent atStart: NO];
@@ -331,8 +466,18 @@ static Class eventClass;
  */
 + (void) _registerRealTimer: (NSTimer*)timer
 {
+  printf("NSEvent _registerRealTimer\n"); //printed once before _timerFired
   NSTimer             *realTimer;
   NSMutableDictionary *dict = GSCurrentThreadDictionary();
+  NSEvent *triggerEvent;
+  NSNumber *viewMouseKey;
+
+  if ([[timer userInfo] count] > 1) { //with trigger event information
+     triggerEvent = [[timer userInfo] objectAtIndex: 1];
+     viewMouseKey = [NSNumber numberWithUnsignedLongLong: 
+                              ((unsigned long long int)[triggerEvent view] << 32 | 
+                               (unsigned long long int)[triggerEvent mouse])];
+  }
 
   NSDebugLLog (@"NSEvent", @"_registerRealTimer: ");
   {
@@ -340,27 +485,59 @@ static Class eventClass;
     NSEvent        *periodicEvent;
     
     timeInterval = [[NSDate date] timeIntervalSinceReferenceDate];
-    periodicEvent = [self otherEventWithType: NSPeriodic
-                          location: NSZeroPoint
-                          modifierFlags: 0
-                          timestamp: timeInterval
-                              windowNumber: 0
-                          context: [NSApp context]
-                          subtype: 0
-                          data1: 0
-                          data2: 0];
+    if ([[timer userInfo] count] > 1) { //with trigger event information
+       periodicEvent = [self otherEventWithType: NSPeriodic
+                                       location: NSZeroPoint
+                                  modifierFlags: 0
+                                      timestamp: timeInterval
+                                   windowNumber: [triggerEvent windowNumber]
+                                           view: [triggerEvent view]
+                                          mouse: [triggerEvent mouse]
+                                        context: [NSApp context]
+                                        subtype: 0
+                                          data1: 0
+                                          data2: 0];
+    } else {
+       periodicEvent = [self otherEventWithType: NSPeriodic
+                                       location: NSZeroPoint
+                                  modifierFlags: 0
+                                      timestamp: timeInterval
+                                   windowNumber: 0
+                                        context: [NSApp context]
+                                        subtype: 0
+                                          data1: 0
+                                          data2: 0];
+    }
     
     [NSApp postEvent: periodicEvent atStart: NO];
   }
 
-  realTimer = [NSTimer timerWithTimeInterval: [[timer userInfo] doubleValue]
+  //realTimer = [NSTimer timerWithTimeInterval: [[timer userInfo] doubleValue]
+  realTimer = [NSTimer timerWithTimeInterval: [[[timer userInfo] objectAtIndex: 0] doubleValue]
                                       target: self
                                     selector: @selector(_timerFired:)
-                                    userInfo: nil
+                                    userInfo: [timer userInfo]
                                      repeats: YES];
-  [dict setObject: realTimer forKey: timerKey];
+  if ([[timer userInfo] count] > 1)
+  {
+     [dict setObject: realTimer forKey: viewMouseKey];
+     [[NSRunLoop currentRunLoop] addTimer: realTimer
+                                  //forMode: NSEventTrackingRunLoopMode];
+                                  forMode: NSDefaultRunLoopMode];
+  }
+  else
+  {
+     [dict setObject: realTimer forKey: timerKey];
+     [[NSRunLoop currentRunLoop] addTimer: realTimer
+                                  forMode: NSEventTrackingRunLoopMode];
+  }
+
+  /*** new version uses default runloop mode since we're not tracking events
+       original version uses event tracking runloop mode
   [[NSRunLoop currentRunLoop] addTimer: realTimer
-                               forMode: NSEventTrackingRunLoopMode];
+                               //forMode: NSEventTrackingRunLoopMode];
+                               forMode: NSDefaultRunLoopMode];
+  ***/
 }
 
 + (void) stopPeriodicEvents
@@ -368,10 +545,29 @@ static Class eventClass;
   NSTimer             *timer;
   NSMutableDictionary *dict = GSCurrentThreadDictionary();
 
+  printf("NSEvent stopPeriodicEvents\n");
+
   NSDebugLLog (@"NSEvent", @"stopPeriodicEvents");
   timer = [dict objectForKey: timerKey];
   [timer invalidate];
   [dict removeObjectForKey: timerKey];
+}
+
++ (void) stopPeriodicEventsWithTrigger: (NSEvent*)triggerEvent
+{
+  NSTimer             *timer;
+  NSMutableDictionary *dict = GSCurrentThreadDictionary();
+
+  printf("NSEvent stopPeriodicEvents with trigger\n");
+
+  NSNumber *viewMouseKey = [NSNumber numberWithUnsignedLongLong: 
+                              ((unsigned long long int)[triggerEvent view] << 32 | 
+                               (unsigned long long int)[triggerEvent mouse])];
+
+  NSDebugLLog (@"NSEvent", @"stopPeriodicEventsWithEvent");
+  timer = [dict objectForKey: viewMouseKey];
+  [timer invalidate];
+  [dict removeObjectForKey: viewMouseKey];
 }
 
 /**
@@ -509,6 +705,15 @@ static Class eventClass;
     {
       RELEASE((id)event_data.tracking.user_data);
     }
+  else if (event_type == SNTouched)
+   {
+      //printf("NSEvent dealloc: touches retainCount = %i\n", [touches retainCount]);
+      RELEASE(touches);
+   }
+
+  if (view != nil)
+     RELEASE(view);
+
   NSDeallocateObject(self);
   GSNOSUPERDEALLOC;
 }
@@ -958,6 +1163,8 @@ static const char *eventTypes[] = {
         return NSTabletPointEventSubtype;
       else if (event_type == NSTabletProximity)
         return NSTabletProximityEventSubtype;
+      else if (sub_type == SNTouchEventSubtype)
+        return SNTouchEventSubtype;
       else
         return NSMouseEventSubtype;
     }
@@ -1016,7 +1223,7 @@ static const char *eventTypes[] = {
 /**
  * Returns the window for which this event was generated.<br />
  * Periodic events have no associated window, and you should not call
- * this method for those events.
+ * this method for those events. ==> THIS WILL CHANGE.. PERIODIC EVENT WILL HAVE ITS ASSOCIATED WINDOW & VIEW
  */
 - (NSWindow *) window
 {
@@ -1026,11 +1233,120 @@ static const char *eventTypes[] = {
 /**
  * Returns the window number of the window for which this event was generated.
  * <br />Periodic events have no associated window, and you should not call
- * this method for those events.
+ * this method for those events. ==> THIS WILL CHANGE.. PERIODIC EVENT WILL HAVE ITS ASSOCIATED WINDOW & VIEW
  */
 - (int) windowNumber
 {
   return window_num;
+}
+
+/**
+ * Returns the view associated with this event.
+ */
+- (NSView *) view
+{
+  return view;
+}
+
+/**
+ * Returns the mouse_id associated with this event.
+ */
+- (NSUInteger) mouse
+{
+  return mouse_id;
+}
+
+/**
+ * Returns all the SNTouch objects associated with a specific phase.<br />
+ * Passing nil as the view gets all touches regardless of their targeted view.
+ */
+- (NSSet *) touchesMatchingPhase: (SNTouchPhase)phase inView: (NSView *)aView
+{
+   //initialize touch set
+   NSMutableSet *ret = [NSMutableSet setWithCapacity: 2];
+   NSEnumerator *enumerator = [touches objectEnumerator];
+   SNTouch *touch;
+
+   if (aView != nil) {
+      while ((touch = [enumerator nextObject])) {
+         if (([touch phase] & phase) && [touch view] == aView) {
+            [ret addObject: touch];
+         } 
+      }
+   } else {
+      while ((touch = [enumerator nextObject])) {
+         if ([touch phase] & phase) {
+            [ret addObject: touch];
+         } 
+      }
+   }
+   return ret;
+}
+
+/**
+ * Returns all SNTouch objects associated with the event.
+ */
+- (NSSet *) allTouches
+{
+   //return touches;
+   return [NSSet setWithArray: touches];
+}
+
+/**
+ * Returns all the SNTouch objects associated with a specific window.<br />
+ * Passing nil as the window gets all touches regardless of their targeted window.
+ */
+- (NSSet *) touchesForWindow: (NSWindow *)aWindow
+{
+   if (aWindow != nil) {
+      //initialize touch set
+      NSMutableSet *ret = [NSMutableSet setWithCapacity: 2];
+      NSEnumerator *enumerator = [touches objectEnumerator];
+      SNTouch *touch;
+      while ((touch = [enumerator nextObject])) {
+         if ([touch window] == aWindow) {
+            [ret addObject: touch];
+         } 
+      }
+      return ret;
+   } else {
+      //return touches;
+      return [NSSet setWithArray: touches];
+   }
+}
+
+/**
+ * Returns all the SNTouch objects associated with a specific view.<br />
+ * Passing nil as the view gets all touches regardless of their targeted view.
+ */
+- (NSSet *) touchesForView: (NSView *)aView
+{
+   if (aView != nil) {
+      //initialize touch set
+      NSMutableSet *ret = [NSMutableSet setWithCapacity: 2];
+      NSEnumerator *enumerator = [touches objectEnumerator];
+      SNTouch *touch;
+      while ((touch = [enumerator nextObject])) {
+         if ([touch view] == aView) {
+            [ret addObject: touch];
+         } 
+      }
+      return ret;
+   } else {
+      //return touches;
+      return [NSSet setWithArray: touches];
+   }
+}
+
+/*
+ * Returns the number of touch objects contained in the event
+ */
+- (int) touchCount;
+{
+   if (touches == nil)
+      return 0;
+   else
+      return [touches count];
 }
 
 /*

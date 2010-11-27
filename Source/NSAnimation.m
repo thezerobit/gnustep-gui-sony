@@ -157,6 +157,191 @@ _gs_animationValueForCurve ( _NSAnimationCurveDesc *c, float t, float t0 )
     }
   return _GSRationalBezierEval ( &(c->rb), (t-t0) / (1.0-t0) );
 }
+/*SN FEA 002*/
+#define PI 3.14159265
+static float backEaseNone(float t,  float b,  float c,  float d) 
+{
+return c*t/d + b;
+}
+static float backEaseIn(float t,  float b,  float c,  float d) 
+{
+float s = 1.70158f;
+return c*(t/=d)*t*((s+1)*t - s) + b;
+}
+static float backEaseOut(float t, float b, float c,  float d) 
+{
+float s = 1.70158f;
+return c*((t=t/d-1)*t*((s+1)*t + s) + 1) + b;
+}
+static float backEaseInOut(float t,  float b,  float c,  float d) 
+{
+float s = 1.70158f;
+if ((t/=d/2) < 1) return c/2*(t*t*(((s*=(1.525))+1)*t - s)) + b;
+return c/2*((t-=2)*t*(((s*=(1.525))+1)*t + s) + 2) + b;
+}
+static float bounceEaseNone(float t,  float b,  float c,  float d) {
+return c*t/d + b;
+}
+static float bounceEaseOut(float t, float b, float c,  float d) {
+if ((t/=d) < (1/2.75)) {
+	return c*(7.5625*t*t) + b;
+} else if (t < (2/2.75)) {
+	return c*(7.5625*(t-=(1.5/2.75))*t + .75) + b;
+} else if (t < (2.5/2.75)) {
+	return c*(7.5625*(t-=(2.25/2.75))*t + .9375) + b;
+} else {
+	return c*(7.5625*(t-=(2.625/2.75))*t + .984375) + b;
+}
+}
+static float bounceEaseIn(float t,  float b,  float c,  float d) {
+return c - bounceEaseOut(d-t, 0, c, d) + b;
+}
+static float bounceEaseInOut(float t,  float b,  float c,  float d) {
+if (t < d/2) return bounceEaseIn(t*2, 0, c, d) * .5 + b;
+else return bounceEaseOut (t*2-d, 0, c, d) * .5 + c*.5 + b;
+}
+static float circEaseNone(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float circEaseIn(float t,  float b,  float c,  float d) {
+	return -c * (sqrt(1 - (t/=d)*t) - 1) + b;
+}
+static float circEaseOut(float t,  float b,  float c,  float d) {
+	return c * sqrt(1 - (t=t/d-1)*t) + b;
+}
+static float circEaseInOut(float t,  float b,  float c,  float d) {
+	if ((t/=d/2) < 1) return -c/2 * (sqrt(1 - t*t) - 1) + b;
+	return c/2 * (sqrt(1 - (t-=2)*t) + 1) + b;
+}
+static float cubicEaseNone(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float cubicEaseIn(float t,  float b,  float c,  float d) {
+	return c*(t/=d)*t*t + b;
+}
+static float cubicEaseOut(float t,  float b,  float c,  float d) {
+	return c*((t=t/d-1)*t*t + 1) + b;
+}
+static float cubicEaseInOut(float t,  float b,  float c,  float d) {
+	if ((t/=d/2) < 1) return c/2*t*t*t + b;
+	return c/2*((t-=2)*t*t + 2) + b;
+}
+static float elasticEaseNone(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float elasticEaseIn(float t, float b,  float c,  float d) {
+	float s = 0.0f;
+	float a = 0.0f;
+	float p = 0.0f;
+
+	if (t==0) return b;
+	if ((t/=d)==1) return b+c;
+	if (!p) p=d*.3;
+	if (!a || a < fabs(c)) { a=c; s=p/4; }
+	else { s = p/(2*PI) * asin(c/a); }
+
+	return -(a*pow(2,10*(t-=1)) * sin( (t*d-s)*(2*PI)/p )) + b;
+}
+static float elasticEaseOut(float t, float b, float c,  float d) {
+	float s = 0.0f;
+	float a = 0.0f;
+	float p = 0.0f;
+
+	if (t==0) return b;  if ((t/=d)==1) return b+c;  if (!p) p=d*.3;
+	if (!a || a < fabs(c)) { a=c; s=p/4; }
+	else { s = p/(2*PI) * asin (c/a); }
+	return (a*pow(2,-10*t) * sin( (t*d-s)*(2*PI)/p ) + c + b);
+}
+static float elasticEaseInOut(float t,  float b,  float c,  float d) {
+	float s = 0.0f;
+	float a = 0.0f;
+	float p = 0.0f;
+
+	if (t==0) return b;  if ((t/=d/2)==2) return b+c;  if (!p) p=d*(.3*1.5);
+	if (!a || a < fabs(c)) { a=c; s=p/4; }
+	else { s = p/(2*PI) * asin (c/a); }
+	if (t < 1) return -.5*(a*pow(2,10*(t-=1)) * sin( (t*d-s)*(2*PI)/p )) + b;
+	return a*pow(2,-10*(t-=1)) * sin( (t*d-s)*(2*PI)/p )*.5 + c + b;
+}
+static float expoEaseNone(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float expoEaseIn(float t,  float b,  float c,  float d) {
+	return (t==0) ? b : c * pow(2, 10 * (t/d - 1)) + b;
+}
+static float expoEaseOut(float t,  float b,  float c,  float d) {
+	return (t==d) ? b+c : c * (-pow(2, -10 * t/d) + 1) + b;
+}
+static float expoEaseInOut(float t,  float b,  float c,  float d) {
+	if (t==0) return b;
+	if (t==d) return b+c;
+	if ((t/=d/2) < 1) return c/2 * pow(2, 10 * (t - 1)) + b;
+	return c/2 * (-pow(2, -10 * --t) + 2) + b;
+}
+static float linearEaseNone(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float linearEaseIn(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float linearEaseOut(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float linearEaseInOut(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float quadEaseNone(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float quadEaseIn(float t,  float b,  float c,  float d) {
+	return c*(t/=d)*t + b;
+}
+static float quadEaseOut(float t,  float b,  float c,  float d) {
+	return -c *(t/=d)*(t-2) + b;
+}
+static float quadEaseInOut(float t,  float b,  float c,  float d) {
+	if ((t/=d/2) < 1) return c/2*t*t + b;
+	return -c/2 * ((--t)*(t-2) - 1) + b;
+}
+static float quartEaseNone(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float quartEaseIn(float t,  float b,  float c,  float d) {
+	return c*(t/=d)*t*t*t + b;
+}
+static float quartEaseOut(float t,  float b,  float c,  float d) {
+	return -c * ((t=t/d-1)*t*t*t - 1) + b;
+}
+static float quartEaseInOut(float t,  float b,  float c,  float d) {
+	if ((t/=d/2) < 1) return c/2*t*t*t*t + b;
+	return -c/2 * ((t-=2)*t*t*t - 2) + b;
+}
+static float quintEaseNone(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float quintEaseIn(float t,  float b,  float c,  float d) {
+	return c*(t/=d)*t*t*t*t + b;
+}
+static float quintEaseOut(float t,  float b,  float c,  float d) {
+	return c*((t=t/d-1)*t*t*t*t + 1) + b;
+}
+static float quintEaseInOut(float t,  float b,  float c,  float d) {
+	if ((t/=d/2) < 1) return c/2*t*t*t*t*t + b;
+	return c/2*((t-=2)*t*t*t*t + 2) + b;
+}
+static float sineEaseNone(float t,  float b,  float c,  float d) {
+	return c*t/d + b;
+}
+static float sineEaseIn(float t,  float b,  float c,  float d) {
+	return -c * cos(t/d * (PI/2)) + c + b;
+}
+static float sineEaseOut(float t,  float b,  float c,  float d) {
+	return c * sin(t/d * (PI/2)) + b;
+}
+static float sineEaseInOut(float t,  float b,  float c,  float d) {
+	return -c/2 * (cos(PI*t/d) - 1) + b;
+}
+
 
 @interface NSAnimation (PrivateNotificationCallbacks)
 - (void) _gs_startAnimationReachesProgressMark: (NSNotification*)notification;
@@ -350,21 +535,155 @@ nsanimation_progressMarkSorter ( NSAnimationProgress first,NSAnimationProgress s
         value = [GS_GC_UNHIDE (_delegate) animation: self
                                    valueForProgress: _currentProgress];
       }
-    else // default -- FIXME ??
-      /*    switch (_curve)
+    else 
+      {
+         switch (_curve)
             {
+              /*SN FEA 002*/
+              case NSBackNone: 
+		value =backEaseNone(_currentProgress, 0, 1,1);
+		break;
+               case NSBackEaseIn: 
+                value =backEaseIn(_currentProgress, 0, 1,1);
+                break;
+                case NSBackEaseOut: 
+                value =backEaseOut(_currentProgress, 0, 1,1);
+                break;
+                case NSBackEaseInOut:
+                value =backEaseInOut(_currentProgress, 0, 1,1);
+                break;
+                case NSBounceNone:
+                value = bounceEaseNone(_currentProgress, 0, 1,1);
+                break;
+                case NSBounceEaseIn:
+                value =bounceEaseIn(_currentProgress, 0, 1,1);
+                break;
+                case NSBounceEaseOut: 
+                value = bounceEaseOut(_currentProgress, 0, 1,1);
+                break;
+                case NSBounceEaseInOut: 
+                value = bounceEaseInOut(_currentProgress, 0, 1,1);
+                break;
+                case NSCircNone: 
+                value =circEaseNone(_currentProgress, 0, 1,1);
+                break;
+                case NSCircEaseIn: 
+                value =circEaseIn(_currentProgress, 0, 1,1);
+                break;
+                case NSCircEaseOut:
+                value =circEaseOut(_currentProgress, 0, 1,1);
+                break;
+                case NSCircEaseInOut:
+                value =circEaseInOut(_currentProgress, 0, 1,1);
+                break;
+                case NSCubicNone: 
+                value =cubicEaseNone(_currentProgress, 0, 1,1);
+                break;
+                case NSCubicEaseIn:
+                value =cubicEaseIn(_currentProgress, 0, 1,1);
+                break;
+                case NSCubicEaseOut: 
+                value =cubicEaseOut(_currentProgress, 0, 1,1);
+                break;
+                case NSCubicEaseInOut:
+                value =cubicEaseInOut(_currentProgress, 0, 1,1);
+                break;
+                case NSElasticNone:
+                value =elasticEaseNone(_currentProgress, 0, 1,1);
+                break;
+                case NSElasticEaseIn:
+                value =elasticEaseIn(_currentProgress, 0, 1,1);
+                break;
+                case NSElasticEaseOut:
+                value =elasticEaseOut(_currentProgress, 0, 1,1);
+                break;
+                case NSElasticEaseInOut: 
+                value =elasticEaseInOut(_currentProgress, 0, 1,1);
+                break;
+                case NSExpoNone:
+                value =expoEaseNone(_currentProgress, 0, 1,1);
+                break;
+                case NSExpoEaseIn: 
+                value =expoEaseIn(_currentProgress, 0, 1,1);
+                break;
+                case NSExpoEaseOut: 
+                value =expoEaseOut(_currentProgress, 0, 1,1);
+                break;
+                case NSExpoEaseInOut:
+                value =expoEaseInOut(_currentProgress, 0, 1,1);
+                break;
+                case NSLinearNone:
+                value =linearEaseNone(_currentProgress, 0, 1,1);
+                break;
+                case NSLinearEaseIn: 
+                value =linearEaseIn(_currentProgress, 0, 1,1);
+                break;
+                case NSLinearEaseOut:
+                value =linearEaseOut(_currentProgress, 0, 1,1);
+                break;
+                case NSLinearEaseInOut: 
+                value =linearEaseInOut(_currentProgress, 0, 1,1);
+                break;
+                case NSQuadNone: 
+                value =quadEaseNone(_currentProgress, 0, 1,1);
+                break;
+                case NSQuadEaseIn: 
+                value =quadEaseIn(_currentProgress, 0, 1,1);
+                break;
+                case NSQuadEaseOut: 
+                value =quadEaseOut(_currentProgress, 0, 1,1);
+                break;
+                case NSQuadEaseInOut:
+                value =quadEaseInOut(_currentProgress, 0, 1,1);
+                break;
+                case NSQuartNone: 
+                value =quartEaseNone(_currentProgress, 0, 1,1);
+                break;
+                case NSQuartEaseIn: 
+                value =quartEaseIn(_currentProgress, 0, 1,1);
+                break;
+                case NSQuartEaseOut: 
+                value =quartEaseOut(_currentProgress, 0, 1,1);
+                break;
+                case NSQuartEaseInOut:
+                value =quartEaseInOut(_currentProgress, 0, 1,1);
+                break;
+                case NSQuintNone: 
+                value =quintEaseNone(_currentProgress, 0, 1,1);
+            break;
+            case NSQuintEaseIn: 
+            value =quintEaseIn(_currentProgress, 0, 1,1);
+            break;
+            case NSQuintEaseOut:
+            value =quintEaseOut(_currentProgress, 0, 1,1);
+            break;
+            case NSQuintEaseInOut:
+             value =quintEaseInOut(_currentProgress, 0, 1,1);
+            break;
+            case NSSineNone: 
+              value =sineEaseNone(_currentProgress, 0, 1,1);
+            break;
+            case NSSineEaseIn:
+              value =sineEaseIn(_currentProgress, 0, 1,1);
+            break;
+            case NSSineEaseOut:
+               value =sineEaseOut(_currentProgress, 0, 1,1);
+            break;
+            case NSSineEaseInOut:
+               value =sineEaseInOut(_currentProgress, 0, 1,1);
+            break;
             case NSAnimationEaseInOut:
-               case NSAnimationEaseIn:
-              case NSAnimationEaseOut:
-           case NSAnimationSpeedInOut:*/
-      value = _gs_animationValueForCurve ( 
-                &_curveDesc, _currentProgress, _curveProgressShift
-                );
-  /*	break;
-        case NSAnimationLinear:
-        value = _currentProgress; break;
-        }*/
-
+            case NSAnimationEaseIn:
+            case NSAnimationEaseOut:
+            case NSAnimationSpeedInOut:
+                 value = _gs_animationValueForCurve ( 
+                &_curveDesc, _currentProgress, _curveProgressShift);
+            break;
+            case NSAnimationLinear:
+            value = _currentProgress; 
+            break;
+        }
+   }
   _NSANIMATION_UNLOCK;
 
   return value;
@@ -1205,6 +1524,14 @@ nsanimation_progressMarkSorter ( NSAnimationProgress first,NSAnimationProgress s
 @end
 
 /*=======================*
+ * NSAnimationPath class *
+ *=======================*/
+/*SNE FEA 001*/
+@implementation NSAnimationPath
+
+@end
+
+/*=======================*
  * NSViewAnimation class *
  *=======================*/
 
@@ -1212,7 +1539,7 @@ NSString *NSViewAnimationTargetKey     = @"NSViewAnimationTargetKey";
 NSString *NSViewAnimationStartFrameKey = @"NSViewAnimationStartFrameKey";
 NSString *NSViewAnimationEndFrameKey   = @"NSViewAnimationEndFrameKey";
 NSString *NSViewAnimationEffectKey     = @"NSViewAnimationEffectKey";
-
+NSString *NSViewAnimationPathKey       = @"NSViewAnimationPathKey";
 NSString *NSViewAnimationFadeInEffect  = @"NSViewAnimationFadeInEffect";
 NSString *NSViewAnimationFadeOutEffect = @"NSViewAnimationFadeOutEffect";
 
@@ -1222,11 +1549,13 @@ NSString *NSViewAnimationFadeOutEffect = @"NSViewAnimationFadeOutEffect";
   NSRect _startFrame;
   NSRect _endFrame;
   NSString* _effect;
+  NSAnimationPath* _bezierPoints;
 }
 
 - (id) initWithProperties: (NSDictionary*)properties;
 - (void) setCurrentProgress: (float)progress;
 - (void) setTargetFrame: (NSRect) frame;
+- (NSPoint) getBezierPoint:(NSAnimationPath*) path forTime: (float) tx;
 
 @end
 
@@ -1247,6 +1576,7 @@ NSString *NSViewAnimationFadeOutEffect = @"NSViewAnimationFadeOutEffect";
 
 - (id) initWithProperties: (NSDictionary*)properties
 {
+
   if ([self isMemberOfClass: [_GSViewAnimationBaseDesc class]])
     {
       NSZone* zone;
@@ -1284,6 +1614,7 @@ NSString *NSViewAnimationFadeOutEffect = @"NSViewAnimationFadeOutEffect";
           startValue = [properties objectForKey: NSViewAnimationStartFrameKey];
           endValue   = [properties objectForKey: NSViewAnimationEndFrameKey];
           _effect    = [properties objectForKey: NSViewAnimationEffectKey];
+          _bezierPoints      = [properties objectForKey: NSViewAnimationPathKey]; /*Sivaraman V*/
 
           _startFrame = (startValue!=nil) ?
             [startValue rectValue]
@@ -1310,6 +1641,12 @@ NSString *NSViewAnimationFadeOutEffect = @"NSViewAnimationFadeOutEffect";
       r.size.height = _startFrame.size.height
         + progress*( _endFrame.size.height - _startFrame.size.height );
 
+       if (_bezierPoints)/*SNE FEA 001*/
+	{
+	NSPoint p=[self getBezierPoint:_bezierPoints forTime:progress];
+        r.origin.x = p.x;
+        r.origin.y = p.y;
+	}
       [self setTargetFrame:r];
 
       if (_effect == NSViewAnimationFadeOutEffect)
@@ -1319,12 +1656,44 @@ NSString *NSViewAnimationFadeOutEffect = @"NSViewAnimationFadeOutEffect";
     }
   else
     {
-      [self setTargetFrame: _endFrame];
+      	if (!_bezierPoints)/*SNE FEA 001*/
+	{
+	     [self setTargetFrame: _endFrame];
+	}
+	else
+	{
+	     [self setTargetFrame: NSMakeRect(_bezierPoints->end.x,
+			_bezierPoints->end.y,_endFrame.size.width,_endFrame.size.height)];
+	}
     }
 }
 
 - (void) setTargetFrame: (NSRect) frame;
 { [self subclassResponsibility: _cmd]; }
+
+-(NSPoint) getBezierPoint:(NSAnimationPath*)path forTime: (float) tx /*SNE FEA 001*/
+{
+	double t=0;
+	NSPoint p;
+	NSPoint coordlist[4];
+
+	coordlist[0]=path->start;
+	coordlist[1]=path->cp1;
+	coordlist[2]=path->cp2;
+	coordlist[3]=path->end;
+	t = tx;
+
+	//use Berstein polynomials
+	 p.x=(coordlist[0].x+t*(-coordlist[0].x*3+t*(3*coordlist[0].x-
+	 coordlist[0].x*t)))+t*(3*coordlist[1].x+t*(-6*coordlist[1].x+
+	 coordlist[1].x*3*t))+t*t*(coordlist[2].x*3-coordlist[2].x*3*t)+
+	 coordlist[3].x*t*t*t;
+	 p.y=(coordlist[0].y+t*(-coordlist[0].y*3+t*(3*coordlist[0].y-
+	 coordlist[0].y*t)))+t*(3*coordlist[1].y+t*(-6*coordlist[1].y+
+	 coordlist[1].y*3*t))+t*t*(coordlist[2].y*3-coordlist[2].y*3*t)+
+	 coordlist[3].y*t*t*t;
+	 return p;
+}
 
 @end // implementation _GSViewAnimationDesc
 
@@ -1360,7 +1729,10 @@ NSString *NSViewAnimationFadeOutEffect = @"NSViewAnimationFadeOutEffect";
 }
 
 - (void) setTargetFrame: (NSRect) frame;
-{ [_target setFrame:frame]; }
+{ 
+[_target setFrame:frame]; 
+[[_target superview] setNeedsDisplay:YES];/*SNE FEA 001*/
+}
 
 @end // implementation _GSViewAnimationDesc
 
@@ -1393,7 +1765,8 @@ NSString *NSViewAnimationFadeOutEffect = @"NSViewAnimationFadeOutEffect";
 }
 
 - (void) setTargetFrame: (NSRect) frame;
-{ [_target setFrame:frame display:YES]; }
+{ 
+[_target setFrame:frame display:YES]; }
 
 @end // implementation _GSWindowAnimationDesc
 

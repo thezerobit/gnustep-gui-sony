@@ -36,6 +36,7 @@
 #include <Foundation/NSObject.h>
 #include <AppKit/AppKitDefines.h>
 #include <GNUstepGUI/GSAnimator.h>
+#include <Foundation/NSGeometry.h>
 
 @class NSString;
 @class NSArray;
@@ -51,7 +52,52 @@ typedef enum _NSAnimationCurve
   NSAnimationEaseIn,
   NSAnimationEaseOut,
   NSAnimationLinear,
-  NSAnimationSpeedInOut // GNUstep only
+  NSAnimationSpeedInOut, // GNUstep only
+/*SN FEA 002*/
+  NSBackNone,
+  NSBackEaseIn,
+  NSBackEaseOut,
+  NSBackEaseInOut,
+  NSBounceNone,
+  NSBounceEaseIn,
+  NSBounceEaseOut,
+  NSBounceEaseInOut,
+  NSElasticNone,
+  NSElasticEaseIn,
+  NSElasticEaseOut,
+  NSElasticEaseInOut,
+  NSCircNone,
+  NSCircEaseIn,
+  NSCircEaseOut,
+  NSCircEaseInOut,
+  NSCubicNone,
+  NSCubicEaseIn,
+  NSCubicEaseOut,
+  NSCubicEaseInOut,
+  NSExpoNone,
+  NSExpoEaseIn,
+  NSExpoEaseOut,
+  NSExpoEaseInOut,
+  NSLinearNone,
+  NSLinearEaseIn,
+  NSLinearEaseOut,
+  NSLinearEaseInOut,
+  NSQuadNone,
+  NSQuadEaseIn,
+  NSQuadEaseOut,
+  NSQuadEaseInOut,
+  NSQuartNone,
+  NSQuartEaseIn,
+  NSQuartEaseOut,
+  NSQuartEaseInOut,
+  NSQuintNone,
+  NSQuintEaseIn,
+  NSQuintEaseOut,
+  NSQuintEaseInOut,
+  NSSineNone,
+  NSSineEaseIn,
+  NSSineEaseOut,
+  NSSineEaseInOut
 } NSAnimationCurve;
 
 /** These constants indicate the blocking mode of an NSAnimation object when it is running. */
@@ -288,7 +334,7 @@ APPKIT_EXPORT NSString *NSViewAnimationTargetKey;
 APPKIT_EXPORT NSString *NSViewAnimationStartFrameKey;
 APPKIT_EXPORT NSString *NSViewAnimationEndFrameKey;
 APPKIT_EXPORT NSString *NSViewAnimationEffectKey;
-
+APPKIT_EXPORT NSString *NSViewAnimationPathKey;
 APPKIT_EXPORT NSString *NSViewAnimationFadeInEffect;
 APPKIT_EXPORT NSString *NSViewAnimationFadeOutEffect;
 
@@ -315,6 +361,18 @@ APPKIT_EXPORT NSString *NSViewAnimationFadeOutEffect;
 
 @end
 
+
+/* Animation path - bezier*/
+/*SNE FEA 001*/
+@interface NSAnimationPath:NSObject
+{
+@public
+NSPoint start;
+NSPoint end;
+NSPoint cp1;
+NSPoint cp2;
+}
+@end
 #endif /* OS_API_VERSION */
 
 #endif /* _GNUstep_H_NSAnimation_ */

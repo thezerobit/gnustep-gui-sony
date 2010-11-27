@@ -32,6 +32,7 @@
 #import <GNUstepBase/GSVersionMacros.h>
 
 #include <Foundation/NSObject.h>
+#include <Foundation/NSSet.h>
 #include <AppKit/NSInterfaceStyle.h>
 #include <AppKit/AppKitDefines.h>
 
@@ -111,6 +112,12 @@
 #if OS_API_VERSION(GS_API_MACOSX, GS_API_LATEST)
 - (void) scrollWheel: (NSEvent *)theEvent;
 #endif
+
+- (void) periodicEvent: (NSEvent*)theEvent;
+- (void) touchesBegan: (NSSet *) touches withEvent: (NSEvent *) theEvent;
+- (void) touchesMoved: (NSSet *) touches withEvent: (NSEvent *) theEvent;
+- (void) touchesEnded: (NSSet *) touches withEvent: (NSEvent *) theEvent;
+- (void) touchesCancelled: (NSSet *) touches withEvent: (NSEvent *) theEvent;
 
 /*
  * Services menu support

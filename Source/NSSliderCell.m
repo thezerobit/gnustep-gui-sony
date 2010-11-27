@@ -640,7 +640,9 @@ float _floatValueForMousePoint (NSPoint point, NSRect knobRect,
   id target = [self target];
   SEL action = [self action];
   unsigned int eventMask = NSLeftMouseDownMask | NSLeftMouseUpMask
-                           | NSLeftMouseDraggedMask | NSMouseMovedMask;
+                           | NSLeftMouseDraggedMask | NSMouseMovedMask | SNTouchedMask
+                           | NSRightMouseDownMask | NSRightMouseUpMask; //<p>FIXME</p> right mouse down/up added temporarily
+                                                                        //for testing purpose only;
   NSEventType eventType = [theEvent type];
   BOOL isContinuous = [self isContinuous];
   float oldFloatValue = [self floatValue];
@@ -649,58 +651,85 @@ float _floatValueForMousePoint (NSPoint point, NSRect knobRect,
   float minValue = [self minValue];
   float maxValue = [self maxValue];
   BOOL isFlipped = [controlView isFlipped];
-  NSPoint location = [theEvent locationInWindow];
-  NSPoint point = [controlView convertPoint: location fromView: nil];
+  //NSPoint location = [theEvent locationInWindow];
+  //NSPoint point = [controlView convertPoint: location fromView: nil];
+  NSPoint point;
   NSRect knobRect = [self knobRectFlipped: isFlipped];
 
-  _mouse_down_flags = [theEvent modifierFlags];
-  if (![self isEnabled])
-    {
-      return NO;
-    }
+  if (eventType == NSLeftMouseDown) {
+     point = [controlView firstMouseLocationInView];
+     _mouse_down_flags = [theEvent modifierFlags];
+     if (![self isEnabled])
+       {
+         return NO;
+       }
 
-  if (![controlView mouse: point inRect: knobRect])
-    {
-      // Mouse is not on the knob, move the knob to the mouse position
-      float floatValue;
+     if (![controlView mouse: point inRect: knobRect])
+       {
+         // Mouse is not on the knob, move the knob to the mouse position
+         float floatValue;
 
-      floatValue = _floatValueForMousePoint(point, knobRect, 
-					    slotRect, isVertical, 
-					    minValue, maxValue,
-					    self, isFlipped); 
-      [self setFloatValue: floatValue];
-      if (isContinuous)
-        {
-	  [(NSControl*)controlView sendAction: action to: target];
-	}
-    }
+         floatValue = _floatValueForMousePoint(point, knobRect, 
+					       slotRect, isVertical, 
+					       minValue, maxValue,
+					       self, isFlipped); 
+         [self setFloatValue: floatValue];
+         if (isContinuous)
+           {
+	     [(NSControl*)controlView sendAction: action to: target];
+	   }
+       }
       
-  if (isContinuous)
-    {
-      [self getPeriodicDelay: &delay interval: &interval];
-      [NSEvent startPeriodicEventsAfterDelay: delay withPeriod: interval];
-      eventMask |= NSPeriodicMask;
-    }
+     if (isContinuous)
+       {
+         [self getPeriodicDelay: &delay interval: &interval];
+         //[NSEvent startPeriodicEventsAfterDelay: delay withPeriod: interval];
+         [NSEvent startPeriodicEventsAfterDelay: delay 
+                                     withPeriod: interval 
+                                          event: theEvent];
+         eventMask |= NSPeriodicMask;
+       }
+  }
+  
 
-  while (eventType != NSLeftMouseUp)
-    {
+
+
+  //while (eventType != NSLeftMouseUp)
+  //  {
+      //printf("NSSliderCell calling nextEventMatchingMask\n"); //printed continuously when dragging knob...
+                                                                //if isContinuous is true, printed continuously when pressing on knob
+
+      /***
       theEvent = [NSApp nextEventMatchingMask: eventMask
 			untilDate: [NSDate distantFuture]
 			inMode: NSEventTrackingRunLoopMode
 			dequeue: YES];
       eventType = [theEvent type];
 
+      if (eventType == SNTouched) {
+         // We trapped a touch event, re-deliver it
+         [NSApp sendEvent: theEvent];
+         if ([theEvent touchCount] > 1) { // We have a multi-touch event, cancel tracking
+            printf("NSSliderCell loop ending... \n");
+            break;
+         }
+         continue;
+      }
+      ***/
+
       if (eventType == NSPeriodic)
         {
 	  NSWindow *w = [controlView window];
 
-	  location = [w mouseLocationOutsideOfEventStream];
+	  //location = [w mouseLocationOutsideOfEventStream];
 	}
       else
         {
-	  location = [theEvent locationInWindow];
+	  //location = [theEvent locationInWindow];
 	}
-      point = [controlView convertPoint: location fromView: nil];
+
+      //point = [controlView convertPoint: location fromView: nil];
+      point = [controlView firstMouseLocationInView];
 
       if (point.x != knobRect.origin.x || point.y != knobRect.origin.y)
         {
@@ -726,19 +755,27 @@ float _floatValueForMousePoint (NSPoint point, NSRect knobRect,
 	    }
 	  knobRect.origin = point;
 	}
-    }
+   // }
 
   // If the cell is not continuous send the action at the end of the drag
-  if (!isContinuous)
+  if (eventType == NSLeftMouseUp) {
+    if (!isContinuous)
     {
-      [(NSControl*)controlView sendAction: action to: target];
+       [(NSControl*)controlView sendAction: action to: target];
     }
+    else
+    {
+      //[NSEvent stopPeriodicEvents];
+      [NSEvent stopPeriodicEventsWithTrigger: theEvent];
+    }
+    return YES;
+  }
   else
-    {
-      [NSEvent stopPeriodicEvents];
-    }
+  {
+    return NO;
+  }
 
-  return YES;
+  //return YES;
 }
 
 - (id) initWithCoder: (NSCoder*)decoder

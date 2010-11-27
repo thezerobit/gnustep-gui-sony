@@ -93,5 +93,5 @@ endif
 include $(GNUSTEP_MAKEFILES)/library.make
 include $(GNUSTEP_MAKEFILES)/tool.make
 include $(GNUSTEP_MAKEFILES)/application.make
-
+include GNUmakefile.preamble
 include GNUmakefile.postamble

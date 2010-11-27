@@ -105,6 +105,24 @@ typedef enum _NSTableViewColumnAutoresizingStyle
   NSString          *_autosaveName;
   BOOL              _verticalMotionDrag;
 
+  // Instance variables to keep state info for loop-free event handling
+  NSPoint           _initialLocation;
+  unsigned          _selectionMode;
+  NSIndexSet       *_mouseDownOldSelectedRows;
+  BOOL              _startedPeriodicEvents;
+  BOOL              _mouseBelowView;
+  BOOL              _mouseMoved;
+  BOOL              _dragOperationPossible;
+  float             _minYVisible;
+  float             _maxYVisible;
+  float             _oldPeriod;
+  int               _originalRow;
+  int               _oldRow;
+  int               _currentRow;
+  //BOOL              _getNextEvent; //to be removed
+  BOOL              _sendAction;
+
+
   /*
    * Ivars Acting as Cache 
    */

@@ -826,6 +826,7 @@ GSCurrentServer(void)
  */
 - (NSPoint) mouselocation
 {
+  //printf("GSDisplayServer mouseLocation\n"); //never printed...
   [self subclassResponsibility: _cmd];
   return NSZeroPoint;
 }
@@ -840,6 +841,7 @@ GSCurrentServer(void)
  */
 - (NSPoint) mouseLocationOnScreen: (int)aScreen window: (int *)win
 {
+  //printf("GSDisplayServer mouseLocationOnScreen\n"); //never printed...
   [self subclassResponsibility: _cmd];
   return NSZeroPoint;
 }
@@ -929,6 +931,7 @@ GSCurrentServer(void)
   unsigned	pos = 0;	/* Position in queue scanned so far	*/
   NSRunLoop	*loop = nil;
 
+  //printf("GSDisplayServer getEventMatchingMask\n");
   do
     {
       unsigned	count = [event_queue count];
@@ -945,6 +948,7 @@ GSCurrentServer(void)
 	   * Special case - if the mask matches any event, we just get the
 	   * first event on the queue.
 	   */
+          //printf("GSDisplayServer mask == NSAnyEventMask\n");
 	  event = [event_queue objectAtIndex: 0];
 	}
       else
@@ -1046,6 +1050,7 @@ GSCurrentServer(void)
  */
 - (void) postEvent: (NSEvent*)anEvent atStart: (BOOL)flag
 {
+  //printf("GSDisplayServer postEvent\n");
   if (flag)
     [event_queue insertObject: anEvent atIndex: 0];
   else

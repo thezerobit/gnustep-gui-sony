@@ -1338,14 +1338,35 @@ static NSMapTable *viewInfo = 0;
   return YES;
 }
 
+//
+// Handling touch events... for testing purpose
+//
+- (void) touchesBeganWithEvent: (NSEvent *) theEvent
+{
+   printf("NSMenuView: touchesBeganWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
+- (void) touchesMovedWithEvent: (NSEvent *) theEvent
+{
+   printf("NSMenuView: touchesMovedWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
+- (void) touchesEndedWithEvent: (NSEvent *) theEvent
+{
+   printf("NSMenuView: touchesEndedWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
 - (BOOL) trackWithEvent: (NSEvent*)event
 {
-  unsigned eventMask = NSPeriodicMask;
+  unsigned eventMask = NSPeriodicMask | SNTouchedMask
+                       | NSRightMouseDownMask | NSRightMouseUpMask | NSRightMouseDraggedMask; //<p>FIXME</p> right mouse down/up/dragged added
+                                                                                              //temporarily for testing purpose only
   NSDate *theDistantFuture = [NSDate distantFuture];
   NSPoint lastLocation = {0,0};
   BOOL justAttachedNewSubmenu = NO;
   BOOL subMenusNeedRemoving = YES;
   BOOL shouldFinish = YES;
+  BOOL gotMultiTouch = NO;
   int delayCount = 0;
   int indexOfActionToExecute = -1;
   int firstIndex = -1;
@@ -1407,6 +1428,7 @@ static NSMapTable *viewInfo = 0;
           NSPoint location;
           int index;
 
+          //printf("NSMenuView.m calling NSWindow mouseLocationOutsideOfEventStream\n"); //printed continuously when mouse down on menu!
           location = [_window mouseLocationOutsideOfEventStream];
           index = [self indexOfItemAtPoint: 
             [self convertPoint: location fromView: nil]];
@@ -1555,13 +1577,30 @@ static NSMapTable *viewInfo = 0;
           lastLocation = location;
         }
 
+      //printf("NSMenuView calling nextEventMatchingMask\n");
       event = [NSApp nextEventMatchingMask: eventMask
         untilDate: theDistantFuture
         inMode: NSEventTrackingRunLoopMode
         dequeue: YES];
       type = [event type];
+
+      while (type == SNTouched) {
+         // We trapped a touch event, re-deliver it
+         [NSApp sendEvent: event];
+         if ([event touchCount] > 1) { // We have a multi-touch event, cancel tracking
+            gotMultiTouch = YES;
+            printf("NSMenuView loop ending... \n");
+            break;
+         }
+         event = [NSApp nextEventMatchingMask: eventMask
+                                    untilDate: theDistantFuture
+                                       inMode: NSEventTrackingRunLoopMode
+                                      dequeue: YES];
+         type = [event type];
+      }
+
     }
-  while (type != end || shouldFinish == NO);
+  while (!gotMultiTouch && (type != end || shouldFinish == NO));
 
   /*
    * Ok, we released the mouse
@@ -1592,10 +1631,20 @@ static NSMapTable *viewInfo = 0;
   [NSEvent stopPeriodicEvents];
 
   /*
+   * If we received a multi-touch event, do not execute anything.
+   * We remove the submenu and return.
+   */
+  if (gotMultiTouch) {
+     [self detachSubmenu];
+     return YES;
+  }
+
+  /*
    * We need to store this, because _highlightedItemIndex
    * will not be valid after we removed this menu from the screen.
    */
   indexOfActionToExecute = _highlightedItemIndex;
+  //printf("indexOfActionToExecute = %i\n", indexOfActionToExecute);
 
   // remove transient menus. --------------------------------------------
   {
@@ -1627,9 +1676,20 @@ static NSMapTable *viewInfo = 0;
   if([self _executeItemAtIndex: indexOfActionToExecute
 	   removeSubmenu: subMenusNeedRemoving] == NO)
     {
+      //printf("returned NO\n");
       return NO;
     }
 
+
+  /***
+  if([self _executeItemAtIndex: indexOfActionToExecute
+	   removeSubmenu: YES] == NO)
+    {
+      return NO;
+    }
+  ***/
+  
+  //printf("gets here only when there's something to execute\n");
   [_attachedMenu performActionForItemAtIndex: indexOfActionToExecute];
   
   /*
@@ -1661,6 +1721,9 @@ static NSMapTable *viewInfo = 0;
   NSPoint currentTopLeft;
   NSPoint originalTopLeft = NSZeroPoint; /* Silence compiler.  */
   BOOL restorePosition;
+  
+  //printf("NSMenuView mouseDown\n");
+
   /*
    * Only for non transient menus do we want
    * to remember the position.

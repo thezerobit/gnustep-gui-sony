@@ -117,6 +117,13 @@
  */
 - (id) initAsTearOff;
 
+//
+// Handling touch events... for testing purpose
+//
+- (void) touchesBeganWithEvent: (NSEvent *) theEvent;
+- (void) touchesMovedWithEvent: (NSEvent *) theEvent;
+- (void) touchesEndedWithEvent: (NSEvent *) theEvent;
+
 /***********************************************************************
  * Getting and setting menu view attributes
  ***********************************************************************/

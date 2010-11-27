@@ -27,7 +27,7 @@ before-libgmodel-all:: \
 		$(addprefix ../Headers/Additions/GNUstepGUI/, $(libgmodel_HEADER_FILES))
 
 ../Headers/Additions/GNUstepGUI/%.h: %.h
-	cp $^ $@
+	cp -f $^ $@
 
 # Additional dependencies
 $(GNUSTEP_OBJ_DIR)/GMArchiver.o: GMArchiveObjects.m

@@ -77,6 +77,7 @@ typedef enum _NSScrollerArrow {
   NSScrollArrowPosition _arrowsPosition;
   NSUsableScrollerParts _usableParts;
   BOOL _cacheValid;
+  float _trackKnob_offset;
 }
 
 //

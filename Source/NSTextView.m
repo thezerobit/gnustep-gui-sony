@@ -669,6 +669,8 @@ If a text view is added to an empty text network, it keeps its attributes.
   _tf.accepts_glyph_info = NO;
   _tf.allows_document_background_color_change = YES;
 
+  _supportsMultiTouch = YES;
+
   _dragTargetLocation = NSNotFound;
 
   _markedRange = NSMakeRange(NSNotFound, 0);
@@ -708,6 +710,23 @@ If a text view is added to an empty text network, it keeps its attributes.
   return self;
 }
 
+//
+// Handling touch events... for testing purpose
+//
+- (void) touchesBegan: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   //printf("NSTextView: touchesBeganWithEvent, touch set count = %i\n", [touches count]);
+}
+
+- (void) touchesMoved: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   //printf("NSTextView: touchesMovedWithEvent, touch set count = %i\n", [touches count]);
+}
+
+- (void) touchesEnded: (NSSet *) touches withEvent: (NSEvent *) theEvent
+{
+   //printf("NSTextView: touchesEndedWithEvent, touch set count = %i\n", [touches count]);
+}
 
 /*
 In earlier versions, some of these ivar:s were in NSText instead of
@@ -4729,25 +4748,44 @@ other than copy/paste or dragging. */
 			 offset: (NSSize)mouseOffset
 		      slideBack: (BOOL)slideBack
 {
-  NSPoint point;
-  NSImage *image = [self dragImageForSelectionWithEvent: event
-			 origin: &point];
+  NSEventType eventType = [event type];
   NSPasteboard *pboard = [NSPasteboard pasteboardWithName: NSDragPboard];
-  NSPoint location = [self convertPoint: [event locationInWindow] fromView: nil];
-  NSMutableArray *types = [NSMutableArray array];
 
-  if (_tf.imports_graphics)
-    [types addObject: NSRTFDPboardType];
+  if (eventType == NSLeftMouseDown)
+  {
+     NSPoint point;
+     NSImage *image = [self dragImageForSelectionWithEvent: event
+			    origin: &point];
+     //NSPasteboard *pboard = [NSPasteboard pasteboardWithName: NSDragPboard];
+     NSPoint location = [self convertPoint: [event locationInWindow] fromView: nil];
+     NSMutableArray *types = [NSMutableArray array];
 
-  if (_tf.is_rich_text)
-    [types addObject: NSRTFPboardType];
+     if (_tf.imports_graphics)
+       [types addObject: NSRTFDPboardType];
 
-  [types addObject: NSStringPboardType];
+     if (_tf.is_rich_text)
+       [types addObject: NSRTFPboardType];
 
-  [self writeSelectionToPasteboard: pboard types: types];
+     [types addObject: NSStringPboardType];
 
-  [self dragImage: image at: location offset: mouseOffset event: event  
+     [self writeSelectionToPasteboard: pboard types: types];
+
+     [self dragImage: image at: location offset: mouseOffset event: event  
 	pasteboard: pboard source: self slideBack: slideBack];
+  }
+  else
+  {
+     // If not mouseDown, pass along the event
+     // We shouldn't have to pass pboard again; mouseDown event should have passed it
+     // But for some reason if we don't pass in pboard, in GSDragView.m
+     // _updateAndMoveImageToCorrectPosition method, mouseWindowRef would be set to zero
+     // during a periodic event, causing dragging to fail
+
+     //[self dragImage: nil at: NSZeroPoint offset: mouseOffset event: event  
+     //   pasteboard: nil source: self slideBack: slideBack];
+     [self dragImage: nil at: NSZeroPoint offset: mouseOffset event: event  
+	pasteboard: pboard source: self slideBack: slideBack];
+  }
 
   return YES;
 }
@@ -4755,289 +4793,481 @@ other than copy/paste or dragging. */
 
 /**** Event handling ****/
 
+- (void)mouseUp:(NSEvent *)theEvent
+{
+   [self mouseDown: theEvent];
+}
+
+- (void)mouseDragged:(NSEvent *)theEvent
+{
+   [self mouseDown: theEvent];
+}
+
+- (void) periodicEvent: (NSEvent*)theEvent
+{
+   [self mouseDown: theEvent];
+}
+
+- (void) flagsChanged: (NSEvent*)theEvent
+{
+   [self mouseDown: theEvent];
+}
+
+- (void) setMultipleTouchEnabled: (BOOL)value
+{
+   // Override this method so that multipleTouchEnabled is always NO
+}
+
 - (void) mouseDown: (NSEvent *)theEvent
 {
-  BOOL canDrag = NO;
-  NSSelectionAffinity affinity = [self selectionAffinity];
-  NSSelectionGranularity granularity = NSSelectByCharacter;
-  NSRange chosenRange, proposedRange;
-  NSPoint point, startPoint;
-  unsigned startIndex;
+  printf("NSTextView mouseDown(), event type = %i\n", [theEvent type]);
+  NSEventType eventType = [theEvent type];
 
-  /* If non selectable then ignore the mouse down. */
-  if (_tf.is_selectable == NO)
-    {
-      return;
-    }
+  if (eventType == NSLeftMouseDown)
+  {
+	  _canDrag = NO;
+	  _affinity = [self selectionAffinity]; //instance var
+	  _granularity = NSSelectByCharacter; //instance var
+	  //NSRange _chosenRange, _proposedRange; //instance var
+	  NSPoint startPoint;
+	  //unsigned _startIndex; //instance var
 
-  if (!_layoutManager)
-    return;
-
-  /* Otherwise, NSWindow has already made us first responder (if
-     possible) */
-
-  startPoint = [self convertPoint: [theEvent locationInWindow] fromView: nil];
-  startIndex = [self _characterIndexForPoint: startPoint
-                     respectFraction: [theEvent clickCount] == 1];
-
-  if ([theEvent modifierFlags] & NSShiftKeyMask)
-    {
-      /* Shift-click is for extending an existing selection using 
-	 the existing granularity */
-      granularity = _layoutManager->_selectionGranularity;
-      /* Compute the new selection */
-      proposedRange = NSMakeRange (startIndex, 0);
-      proposedRange = NSUnionRange (_layoutManager->_selected_range,
-	proposedRange);
-      proposedRange = [self selectionRangeForProposedRange: proposedRange
-	granularity: granularity];
-      /* Merge it with the old one */
-      proposedRange = NSUnionRange (_layoutManager->_selected_range,
-	proposedRange);
-      /* Now decide what happens if the user shift-drags.  The range 
-	 will be based in startIndex, so we need to adjust it. */
-      if (startIndex <= _layoutManager->_selected_range.location) 
-	{
-	  startIndex = NSMaxRange (proposedRange);
-	}
-      else 
-	{
-	  startIndex = proposedRange.location;
-	}
-    }
-  else /* No shift */
-    {
-      switch ([theEvent clickCount])
-	{
-	case 1: granularity = NSSelectByCharacter;
-	  break;
-	case 2: granularity = NSSelectByWord;
-	  break;
-	case 3: granularity = NSSelectByParagraph;
-	  break;
-	}
-
-      /* A single click into the selected range can start a drag operation */
-      canDrag = granularity == NSSelectByCharacter
-	  && NSLocationInRange(startIndex, _layoutManager->_selected_range);
-      proposedRange = NSMakeRange (startIndex, 0);
-
-      /* We manage clicks on attachments and links only on the first
-	 click, so that if you double-click on them, only the first
-	 click gets sent to them; the other clicks select by
-	 word/paragraph as usual.  */
-      if (granularity == NSSelectByCharacter)
-	{
-	  NSTextAttachment *attachment;
-
-	  /* Check if the click was on an attachment cell.  */
-	  attachment = [_textStorage attribute: NSAttachmentAttributeName
-				       atIndex: startIndex
-				effectiveRange: NULL];
-	      
-	  if (attachment != nil)
+	  /* If non selectable then ignore the mouse down. */
+	  if (_tf.is_selectable == NO)
 	    {
-	      id <NSTextAttachmentCell> cell = [attachment attachmentCell];
+	      return;
+	    }
 
-	      if (cell != nil)
+	  if (!_layoutManager)
+	    return;
+
+	  /* Otherwise, NSWindow has already made us first responder (if
+	     possible) */
+
+	  startPoint = [self convertPoint: [theEvent locationInWindow] fromView: nil];
+	  _startIndex = [self _characterIndexForPoint: startPoint
+			     respectFraction: [theEvent clickCount] == 1];
+
+	  if ([theEvent modifierFlags] & NSShiftKeyMask)
+	    {
+	      /* Shift-click is for extending an existing selection using 
+		 the existing granularity */
+	      _granularity = _layoutManager->_selectionGranularity;
+	      /* Compute the new selection */
+	      _proposedRange = NSMakeRange (_startIndex, 0);
+	      _proposedRange = NSUnionRange (_layoutManager->_selected_range,
+		_proposedRange);
+	      _proposedRange = [self selectionRangeForProposedRange: _proposedRange
+		granularity: _granularity];
+	      /* Merge it with the old one */
+	      _proposedRange = NSUnionRange (_layoutManager->_selected_range,
+		_proposedRange);
+	      /* Now decide what happens if the user shift-drags.  The range 
+		 will be based in startIndex, so we need to adjust it. */
+	      if (_startIndex <= _layoutManager->_selected_range.location) 
 		{
-		  NSRect cellFrame;
-      NSRect lfRect;
+		  _startIndex = NSMaxRange (_proposedRange);
+		}
+	      else 
+		{
+		  _startIndex = _proposedRange.location;
+		}
+	    }
+	  else /* No shift */
+	    {
+	      switch ([theEvent clickCount])
+		{
+		case 1: _granularity = NSSelectByCharacter;
+		  break;
+		case 2: _granularity = NSSelectByWord;
+		  break;
+		case 3: _granularity = NSSelectByParagraph;
+		  break;
+		}
 
-      lfRect = [_layoutManager lineFragmentRectForGlyphAtIndex: startIndex
-                               effectiveRange: NULL];
-		  cellFrame.origin = [_layoutManager 
-				       locationForGlyphAtIndex: startIndex];
-		  cellFrame.size = [_layoutManager 
-				     attachmentSizeForGlyphAtIndex: startIndex];
-		  cellFrame.origin.y -= cellFrame.size.height;
-      cellFrame.origin.x += lfRect.origin.x;
-      cellFrame.origin.y += lfRect.origin.y;
+	      /* A single click into the selected range can start a drag operation */
+	      _canDrag = _granularity == NSSelectByCharacter
+		  && NSLocationInRange(_startIndex, _layoutManager->_selected_range);
+	      _proposedRange = NSMakeRange (_startIndex, 0);
 
-		  /* TODO: What about the insertion point ? */
-		  if ([cell wantsToTrackMouseForEvent: theEvent
-			inRect: cellFrame
-			ofView: self
-			atCharacterIndex: startIndex]
-		      && [cell trackMouse: theEvent
-				   inRect: cellFrame 
-				   ofView: self
-			 atCharacterIndex: startIndex
-			     untilMouseUp: NO])
+	      /* We manage clicks on attachments and links only on the first
+		 click, so that if you double-click on them, only the first
+		 click gets sent to them; the other clicks select by
+		 word/paragraph as usual.  */
+	      if (_granularity == NSSelectByCharacter)
+		{
+		  NSTextAttachment *attachment;
+
+		  /* Check if the click was on an attachment cell.  */
+		  attachment = [_textStorage attribute: NSAttachmentAttributeName
+					       atIndex: _startIndex
+					effectiveRange: NULL];
+			      
+		  if (attachment != nil)
 		    {
-		      return;
+		      printf("attachment != nil\n");
+		      id <NSTextAttachmentCell> cell = [attachment attachmentCell];
+
+		      if (cell != nil)
+			{
+			  NSRect cellFrame;
+	      NSRect lfRect;
+
+	      lfRect = [_layoutManager lineFragmentRectForGlyphAtIndex: _startIndex
+			               effectiveRange: NULL];
+			  cellFrame.origin = [_layoutManager 
+					       locationForGlyphAtIndex: _startIndex];
+			  cellFrame.size = [_layoutManager 
+					     attachmentSizeForGlyphAtIndex: _startIndex];
+			  cellFrame.origin.y -= cellFrame.size.height;
+	      cellFrame.origin.x += lfRect.origin.x;
+	      cellFrame.origin.y += lfRect.origin.y;
+
+			  /* TODO: What about the insertion point ? */
+			  if ([cell wantsToTrackMouseForEvent: theEvent
+				inRect: cellFrame
+				ofView: self
+				atCharacterIndex: _startIndex]
+			      && [cell trackMouse: theEvent
+					   inRect: cellFrame 
+					   ofView: self
+				 atCharacterIndex: _startIndex
+				     untilMouseUp: NO])
+			    {
+			      return;
+			    }
+			}
 		    }
+
+		  /* This is the code for handling click event on a link (a link
+		     is some chars with the NSLinkAttributeName set to something
+		     which is not-null, a NSURL object usually).  */
+		  {
+		    /* What exactly is this link object, it's up to the
+		       programmer who is using the NSTextView and who
+		       originally created the link object and saved it under
+		       the NSLinkAttributeName in the text.  Normally, a NSURL
+		       object is used. */
+		    /* TODO: should call -clickedOnLink:atIndex: instead */
+		    id link = [_textStorage attribute: NSLinkAttributeName
+					    atIndex: _startIndex
+					    effectiveRange: NULL];
+		    if (link != nil  &&  _delegate != nil)
+		      { 
+			printf("link != nil\n");
+			SEL selector = @selector(textView:clickedOnLink:atIndex:);
+		
+			if ([_delegate respondsToSelector: selector])
+			  {
+			    /* Move the insertion point over the link.  */
+			    _chosenRange = [self selectionRangeForProposedRange: 
+						  _proposedRange
+						granularity: _granularity];
+
+			    [self setSelectedRange: _chosenRange  affinity: _affinity  
+				  stillSelecting: NO];
+
+			    [self displayIfNeeded];
+
+			    /* Now 'activate' the link.  The _delegate returns
+			       YES if it handles the click, NO if it doesn't
+			       -- and if it doesn't, we need to pass the click
+			       to the next responder.  */
+			    if ([_delegate textView: self  clickedOnLink: link  
+					   atIndex: _startIndex])
+			      {
+				return;
+			      }
+			    else
+			      {
+				[super mouseDown: theEvent];
+				return; 
+			      }
+			  }
+		      }
+		  }
 		}
 	    }
 
-	  /* This is the code for handling click event on a link (a link
-	     is some chars with the NSLinkAttributeName set to something
-	     which is not-null, a NSURL object usually).  */
-	  {
-	    /* What exactly is this link object, it's up to the
-	       programmer who is using the NSTextView and who
-	       originally created the link object and saved it under
-	       the NSLinkAttributeName in the text.  Normally, a NSURL
-	       object is used. */
-	    /* TODO: should call -clickedOnLink:atIndex: instead */
-	    id link = [_textStorage attribute: NSLinkAttributeName
-				    atIndex: startIndex
-				    effectiveRange: NULL];
-	    if (link != nil  &&  _delegate != nil)
-	      {
-		SEL selector = @selector(textView:clickedOnLink:atIndex:);
-		
-		if ([_delegate respondsToSelector: selector])
-		  {
-		    /* Move the insertion point over the link.  */
-		    chosenRange = [self selectionRangeForProposedRange: 
-					  proposedRange
-					granularity: granularity];
+	  _chosenRange = [self selectionRangeForProposedRange: _proposedRange
+			      granularity: _granularity];
+  }
 
-		    [self setSelectedRange: chosenRange  affinity: affinity  
-			  stillSelecting: NO];
 
-		    [self displayIfNeeded];
 
-		    /* Now 'activate' the link.  The _delegate returns
-		       YES if it handles the click, NO if it doesn't
-		       -- and if it doesn't, we need to pass the click
-		       to the next responder.  */
-		    if ([_delegate textView: self  clickedOnLink: link  
-				   atIndex: startIndex])
-		      {
-			return;
-		      }
-		    else
-		      {
-			[super mouseDown: theEvent];
-			return; 
-		      }
-		  }
-	      }
-	  }
-	}
-    }
-
-  chosenRange = [self selectionRangeForProposedRange: proposedRange
-		      granularity: granularity];
-  if (canDrag)
+  if (_canDrag || (_dragStarted && eventType == NSFlagsChanged))
   {
-    unsigned int mask = NSLeftMouseDraggedMask | NSLeftMouseUpMask;
-    NSEvent *currentEvent;
+    //printf("entering _canDrag...\n");
 
-    currentEvent = [_window nextEventMatchingMask: mask
-  			      untilDate: [NSDate distantFuture]
-  			      inMode: NSEventTrackingRunLoopMode
-  			      dequeue: YES];
-    if ([currentEvent type] == NSLeftMouseDragged)
+    //unsigned int mask = NSLeftMouseDraggedMask | NSLeftMouseUpMask | NSTouchedMask
+    //                    | NSRightMouseDownMask | NSRightMouseUpMask | NSRightMouseDraggedMask; //<p>FIXME</p> right mouse down/up/dragged added
+                                                                                              // temporarily for testing purpose only
+    //NSEvent *currentEvent;
+
+    //printf("NSTextView calling nextEventMatchingMask #1\n");
+    //currentEvent = [_window nextEventMatchingMask: mask
+  	//		      untilDate: [NSDate distantFuture]
+  	//		      inMode: NSEventTrackingRunLoopMode
+  	//		      dequeue: YES];
+
+    /***
+    while ([currentEvent type] == NSTouched) {
+         // We trapped a touch event, re-deliver it
+         [NSApp sendEvent: currentEvent];
+         if ([currentEvent touchCount] > 1) { // We have a multi-touch event, return right away
+            printf("NSTextView drag cancelled... \n");
+            return;
+         }
+         currentEvent = [_window nextEventMatchingMask: mask
+  			                     untilDate: [NSDate distantFuture]
+  			                        inMode: NSEventTrackingRunLoopMode
+  			                       dequeue: YES];
+    }
+    ***/
+
+    
+    if (eventType == NSLeftMouseDown)
       {
-  	if (![self dragSelectionWithEvent: theEvent
-  				   offset: NSMakeSize(0, 0)
-  				slideBack: YES])
-  	  {
-  	    NSBeep();
-  	  }
-  	return;
+         // Release last event before assigning a new one
+         if (_lastEvent != nil) {
+            RELEASE(_lastEvent);
+         }
+         _lastEvent = RETAIN(theEvent);
       }
+    else if (eventType == NSLeftMouseDragged && _lastEvent != nil)
+      {
+  	if (![self dragSelectionWithEvent: _lastEvent
+                                   offset: NSMakeSize(0, 0)
+                                slideBack: YES])
+         {
+            NSBeep();
+         }
+         // Release the event we retained for dragging
+         RELEASE(_lastEvent);
+         _lastEvent = nil;
+         _dragStarted = YES;
+         return;
+      }
+    else if (_dragStarted)
+      {
+        if (![self dragSelectionWithEvent: theEvent
+                                   offset: NSMakeSize(0, 0)
+                                slideBack: YES])
+         {
+            NSBeep();
+         }
+
+        if (eventType == NSLeftMouseUp) {
+           _dragStarted = NO;
+        }
+        
+        return;
+      }
+  }
+  else if (eventType == NSFlagsChanged)
+  {
+     return;
   }
   else
   /* Enter modal loop tracking the mouse */
   {
-    unsigned int mask = NSLeftMouseDraggedMask | NSLeftMouseUpMask
-			| NSPeriodicMask;
-    NSEvent *currentEvent;
-    NSEvent *lastEvent = nil; /* Last non-periodic event. */
-    NSDate *distantPast = [NSDate distantPast];
-    BOOL gettingPeriodic, gotPeriodic;
+    //unsigned int mask = NSLeftMouseDraggedMask | NSLeftMouseUpMask
+	//		| NSPeriodicMask | NSTouchedMask
+        //                | NSRightMouseDownMask | NSRightMouseUpMask | NSRightMouseDraggedMask; //<p>FIXME</p> right mouse down/up/dragged added
+                                                                                               // temporarily for testing purpose only
+    //NSEvent *currentEvent;
+    //NSEvent *lastEvent = nil; /* Last non-periodic event. */
+    //NSDate *distantPast = [NSDate distantPast];
+    //BOOL gettingPeriodic, gotPeriodic;
+    //BOOL gotMultiTouch = NO;
+    NSPoint point;
 
-    [self setSelectedRange: chosenRange  affinity: affinity  
-	  stillSelecting: YES];
+    if (eventType == NSLeftMouseDown) {
+       [self setSelectedRange: _chosenRange  affinity: _affinity  
+	       stillSelecting: YES];
+    }
 
-    currentEvent = [_window nextEventMatchingMask: mask
-		     untilDate: [NSDate distantFuture]
-		     inMode: NSEventTrackingRunLoopMode
-		     dequeue: YES];
-    gettingPeriodic = NO;
-    do
-      {
-	gotPeriodic = NO;
-	while (currentEvent && [currentEvent type] != NSLeftMouseUp)
-	  {
-	    if ([currentEvent type] == NSPeriodic)
-	      {
-		gotPeriodic = YES;
-	      }
-	    else
-	      lastEvent = currentEvent;
-	    currentEvent = [_window nextEventMatchingMask: mask
-			     untilDate: distantPast
-			     inMode: NSEventTrackingRunLoopMode
-			     dequeue: YES];
-	  }
-	if (currentEvent && [currentEvent type] == NSLeftMouseUp)
-	  break;
+    //printf("NSTextView calling nextEventMatchingMask #2\n");
+    //currentEvent = [_window nextEventMatchingMask: mask
+	//	     untilDate: [NSDate distantFuture]
+	//	     inMode: NSEventTrackingRunLoopMode
+	//	     dequeue: YES];
+    //currentEvent = theEvent;
 
-	/*
-	Automatic scrolling.
+    // Trap any touch events here
+    /***
+    while ([currentEvent type] == NSTouched) {
+       // We trapped a touch event, re-deliver it
+       [NSApp sendEvent: currentEvent];
+       if ([currentEvent touchCount] > 1) {
+          printf("NSTextView mouseDown() returns without tracking\n");
+          // Here we return right away, without even entering the tracking loop
+          return;
+       }
+       currentEvent = [_window nextEventMatchingMask: mask
+		        untilDate: [NSDate distantFuture]
+		        inMode: NSEventTrackingRunLoopMode
+		        dequeue: YES];
+    }
+    ***/
 
-	If we aren't getting periodic events, we check all events. If any of
-	them causes us to scroll, we scroll and start up the periodic events.
+    if (eventType != NSLeftMouseUp)
+    {
+	    //gettingPeriodic = NO;
+	    //do
+	    //  {
 
-	If we are getting periodic events, we only scroll when we receive a
-	periodic event (and we use the last non-periodic event to determine
-	how far). If no scrolling occurred, we stop the periodic events.
-	*/
-	if (!gettingPeriodic)
-	  {
-	    if ([self autoscroll: lastEvent])
-	      {
-		gettingPeriodic = YES;
-		[NSEvent startPeriodicEventsAfterDelay: 0.1
-					    withPeriod: 0.1];
+                //if ([currentEvent type] == NSPeriodic)
+                //   _gettingPeriodic = YES;
+                //else
+                //   lastEvent = currentEvent;
+
+                if (eventType != NSPeriodic) {
+                   // Release last event before assigning a new one
+                   if (_lastEvent != nil) {
+                      RELEASE(_lastEvent);
+                   }
+                   _lastEvent = RETAIN(theEvent);
+                }
+ 
+		//gotPeriodic = NO;
+
+                /***
+		while (currentEvent && [currentEvent type] != NSLeftMouseUp)
+		  {
+		    if ([currentEvent type] == NSPeriodic)
+		      {
+		        //printf("gotPeriodic = YES\n");
+			gotPeriodic = YES;
+		      }
+		    else
+		      lastEvent = currentEvent;
+		    printf("NSTextView calling nextEventMatchingMask #3\n");
+		    currentEvent = [_window nextEventMatchingMask: mask
+				     untilDate: distantPast
+				     inMode: NSEventTrackingRunLoopMode
+				     dequeue: YES];
+
+		    // Trap any touch events here
+		    while (currentEvent && [currentEvent type] == NSTouched)
+		      {
+		         // We trapped a touch event, re-deliver it
+		         [NSApp sendEvent: currentEvent];
+		         if ([currentEvent touchCount] > 1) { // We have a multi-touch event, break all loops
+		            gotMultiTouch = YES;
+		            break;
+		         }
+			 currentEvent = [_window nextEventMatchingMask: mask
+					  untilDate: distantPast
+					  inMode: NSEventTrackingRunLoopMode
+					  dequeue: YES];
+		      }
+		  }
+                  ***/
+		//if (currentEvent && [currentEvent type] == NSLeftMouseUp) 
+		//  break;
+
+		/*
+		Automatic scrolling.
+
+		If we aren't getting periodic events, we check all events. If any of
+		them causes us to scroll, we scroll and start up the periodic events.
+
+		If we are getting periodic events, we only scroll when we receive a
+		periodic event (and we use the last non-periodic event to determine
+		how far). If no scrolling occurred, we stop the periodic events.
+		*/
+		if (!_gettingPeriodic)
+		  {
+		    if ([self autoscroll: _lastEvent])
+		      {
+			_gettingPeriodic = YES;
+			//[NSEvent startPeriodicEventsAfterDelay: 0.1
+			//			    withPeriod: 0.1];
+                        [NSEvent startPeriodicEventsAfterDelay: 0.1 
+                                                    withPeriod: 0.1 
+                                                         event: _lastEvent];
 		
-	      }
-	  }
-	else if (gotPeriodic)
-	  {
-	    if (![self autoscroll: lastEvent])
-	      {
-		gettingPeriodic = NO;
-		[NSEvent stopPeriodicEvents];
-	      }
-	  }
+		      }
+		  }
+		//else if (gotPeriodic)
+                else
+		  {
+		    if (![self autoscroll: _lastEvent])
+		      {
+			_gettingPeriodic = NO;
+			//[NSEvent stopPeriodicEvents];
+                        printf("NSTextView stopPeriodicEvents #1\n");
+                        [NSEvent stopPeriodicEventsWithTrigger: _lastEvent];
+		      }
+		  }
 
 
-	point = [self convertPoint: [lastEvent locationInWindow]
-		  fromView: nil];
-  proposedRange = MakeRangeFromAbs([self _characterIndexForPoint: point
-                                         respectFraction: YES],
-                                   startIndex);
-	chosenRange = [self selectionRangeForProposedRange: proposedRange
-			granularity: granularity];
-	[self setSelectedRange: chosenRange  affinity: affinity
-	  stillSelecting: YES];
+		point = [self convertPoint: [_lastEvent locationInWindow]
+			  fromView: nil];
+	  _proposedRange = MakeRangeFromAbs([self _characterIndexForPoint: point
+		                                 respectFraction: YES],
+		                           _startIndex);
+		_chosenRange = [self selectionRangeForProposedRange: _proposedRange
+				granularity: _granularity];
+		[self setSelectedRange: _chosenRange  affinity: _affinity
+		  stillSelecting: YES];
 
-	currentEvent = [_window nextEventMatchingMask: mask
-			 untilDate: [NSDate distantFuture]
-			 inMode: NSEventTrackingRunLoopMode
-			 dequeue: YES];
-      } while ([currentEvent type] != NSLeftMouseUp);
+		//printf("NSTextView calling nextEventMatchingMask #4\n");
+		//currentEvent = [_window nextEventMatchingMask: mask
+		//		 untilDate: [NSDate distantFuture]
+		//		 inMode: NSEventTrackingRunLoopMode
+		//		 dequeue: YES];
+		
+		// Trap any touch events here
+		/***
+		while ([currentEvent type] == NSTouched) 
+		{
+		   // We trapped a touch event, re-deliver it
+		   [NSApp sendEvent: currentEvent];
+		   if ([currentEvent touchCount] > 1) { // We have a multi-touch event, cancel tracking
+		      gotMultiTouch = YES;
+		      printf("NSTextView tracking loop ending...\n");
+		      break;
+		   }
+		   currentEvent = [_window nextEventMatchingMask: mask
+				    untilDate: [NSDate distantFuture]
+				    inMode: NSEventTrackingRunLoopMode
+				    dequeue: YES];
+		}
+		***/
+	      //} while ([currentEvent type] != NSLeftMouseUp);
 
-    if (gettingPeriodic)
-      {
-	[NSEvent stopPeriodicEvents];
-      }
+    }
+    else // Handling NSLeftMouseUp event
+    {
+        if (_gettingPeriodic)
+        {
+	   //[NSEvent stopPeriodicEvents];
+           printf("NSTextView stopPeriodicEvents #2\n");
+           [NSEvent stopPeriodicEventsWithTrigger: theEvent];
+           _gettingPeriodic = NO;
+        }
+    }
   }
 
-  NSDebugLog(@"chosenRange. location  = %d, length  = %d\n",
-	     (int)chosenRange.location, (int)chosenRange.length);
+  if (eventType == NSLeftMouseUp)
+  {
+     NSDebugLog(@"chosenRange. location  = %d, length  = %d\n",
+	        (int)_chosenRange.location, (int)_chosenRange.length);
 
-  [self setSelectedRange: chosenRange  affinity: affinity  
-	stillSelecting: NO];
+     [self setSelectedRange: _chosenRange  affinity: _affinity  
+	     stillSelecting: NO];
 
-  /* Remember granularity till a new selection destroys the memory */
-  [self setSelectionGranularity: granularity];
+     /* Remember granularity till a new selection destroys the memory */
+     [self setSelectionGranularity: _granularity];
+
+     // Release the event we retained for auto scrolling
+     if (_lastEvent != nil) {
+        RELEASE(_lastEvent);
+        _lastEvent = nil;
+     }
+  }
 }
 
 - (void) keyDown: (NSEvent *)theEvent

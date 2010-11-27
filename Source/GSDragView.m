@@ -33,6 +33,7 @@
 
 #include <Foundation/NSDebug.h>
 #include <Foundation/NSThread.h>
+#include <Foundation/NSRunLoop.h>
 
 #include <AppKit/NSApplication.h>
 #include <AppKit/NSCell.h>
@@ -235,47 +236,61 @@ static	GSDragView *sharedDragView = nil;
 	    source: (id)sourceObject
 	 slideBack: (BOOL)slideFlag
 {
-  NSPoint	eventPoint;
-  NSPoint	imagePoint;
+  //printf("GSDragView dragImage\n");
+  NSEventType eventType = [event type];
 
-  ASSIGN(dragPasteboard, pboard);
-  ASSIGN(dragSource, sourceObject);
-  dragSequence = [event timestamp];
-  slideBack = slideFlag;
+  if (eventType == NSLeftMouseDown)
+  {
+     NSPoint	eventPoint;
+     NSPoint	imagePoint;
 
-  // Unset the target window  
-  targetWindowRef = 0;
-  targetMask = NSDragOperationAll;
-  destExternal = NO;
+     printf("pboard = %s\n", [[pboard description] cString]);
+     ASSIGN(dragPasteboard, pboard);
+     ASSIGN(dragSource, sourceObject);
+     dragSequence = [event timestamp];
+     slideBack = slideFlag;
 
-  NSDebugLLog(@"NSDragging", @"Start drag with %@", [pboard types]);
+     // Unset the target window 
+     printf("setting targetWindowRef to 0!!!\n"); 
+     targetWindowRef = 0;
+     targetMask = NSDragOperationAll;
+     destExternal = NO;
 
-  /*
-   * The position of the mouse is the event location  plus any offset
-   * provided.  We convert this from window coordinates to screen
-   * coordinates.
-   */
-  eventPoint = [event locationInWindow];
-  eventPoint = [[event window] convertBaseToScreen: eventPoint];
-  eventPoint.x += initialOffset.width;
-  eventPoint.y += initialOffset.height;
+     NSDebugLLog(@"NSDragging", @"Start drag with %@", [pboard types]);
 
-  /*
-   * Adjust image location to match the mose adjustment.
-   */
-  imagePoint = screenLocation;
-  imagePoint.x += initialOffset.width;
-  imagePoint.y += initialOffset.height;
+     /*
+      * The position of the mouse is the event location  plus any offset
+      * provided.  We convert this from window coordinates to screen
+      * coordinates.
+      */
+     eventPoint = [event locationInWindow];
+     eventPoint = [[event window] convertBaseToScreen: eventPoint];
+     eventPoint.x += initialOffset.width;
+     eventPoint.y += initialOffset.height;
 
-  [self _setupWindowFor: anImage
-	  mousePosition: eventPoint
-	  imagePosition: imagePoint];
+     /*
+      * Adjust image location to match the mose adjustment.
+      */
+     imagePoint = screenLocation;
+     imagePoint.x += initialOffset.width;
+     imagePoint.y += initialOffset.height;
 
-  isDragging = YES;
+     [self _setupWindowFor: anImage
+	     mousePosition: eventPoint
+	     imagePosition: imagePoint];
+
+     isDragging = YES;
+  }
+
+  //printf("dragPasteboard = %s\n", [[dragPasteboard description] cString]);
   [self _handleDrag: event slidePoint: screenLocation];
-  isDragging = NO;
-  DESTROY(dragSource);
-  DESTROY(dragPasteboard);
+
+  if (eventType == NSLeftMouseUp)
+  {
+     isDragging = NO;
+     DESTROY(dragSource);
+     DESTROY(dragPasteboard);
+  }
 }
 
 - (void) slideDraggedImageTo:  (NSPoint)point
@@ -602,146 +617,204 @@ static	GSDragView *sharedDragView = nil;
 */
 - (void) _handleDrag: (NSEvent*)theEvent slidePoint: (NSPoint)slidePoint
 {
-  // Caching some often used values. These values do not
-  // change in this method.
-  // Use eWindow for coordination transformation
-  NSWindow	*eWindow = [theEvent window];
-  NSDate	*theDistantFuture = [NSDate distantFuture];
-  unsigned int	eventMask = NSLeftMouseDownMask | NSLeftMouseUpMask
-    | NSLeftMouseDraggedMask | NSMouseMovedMask
-    | NSPeriodicMask | NSAppKitDefinedMask | NSFlagsChangedMask;
-  NSPoint       startPoint;
-  // Storing values, to restore after we have finished.
-  NSCursor      *cursorBeforeDrag = [NSCursor currentCursor];
-  BOOL deposited;
-
-  startPoint = [eWindow convertBaseToScreen: [theEvent locationInWindow]];
-  startPoint.x -= offset.width;
-  startPoint.y -= offset.height;
-  NSDebugLLog(@"NSDragging", @"Drag window origin %d %d\n", startPoint.x, startPoint.y);
-
-  // Notify the source that dragging has started
-  if ([dragSource respondsToSelector:
-      @selector(draggedImage:beganAt:)])
-    {
-      [dragSource draggedImage: [self draggedImage]
-		       beganAt: startPoint];
-    }
-
-  // --- Setup up the masks for the drag operation ---------------------
-  if ([dragSource respondsToSelector:
-    @selector(ignoreModifierKeysWhileDragging)]
-    && [dragSource ignoreModifierKeysWhileDragging])
-    {
-      operationMask = NSDragOperationIgnoresModifiers;
-    }
-  else
-    {
-      operationMask = 0;
-      [self _updateOperationMask: theEvent];
-    }
-
-  dragMask = [dragSource draggingSourceOperationMaskForLocal: !destExternal];
+  NSEventType eventType = [theEvent type];
   
-  // --- Setup the event loop ------------------------------------------
-  [self _updateAndMoveImageToCorrectPosition];
-  [NSEvent startPeriodicEventsAfterDelay: 0.02 withPeriod: 0.03];
+     //NSDate	*theDistantFuture = [NSDate distantFuture];
+     //unsigned int	eventMask = NSLeftMouseDownMask | NSLeftMouseUpMask
+     //  | NSLeftMouseDraggedMask | NSMouseMovedMask
+     //  | NSPeriodicMask | NSAppKitDefinedMask | NSFlagsChangedMask
+     //  | NSTouchedMask | NSRightMouseDownMask | NSRightMouseUpMask | NSRightMouseDraggedMask; //<p>FIXME</p> right mouse down/up/dragged 
+                                                                                              // added temporarily for testing purpose only
+  if (eventType == NSLeftMouseDown)
+  {
+     // Caching some often used values. These values do not
+     // change in this method.
+     // Use eWindow for coordination transformation
+     NSWindow	*eWindow = [theEvent window];
+     NSPoint       startPoint;
+     // Storing values, to restore after we have finished.
+     _cursorBeforeDrag = [NSCursor currentCursor]; //instance var
+     _slidePoint = slidePoint;
+     
+     //BOOL gotMultiTouch = NO;
+
+     startPoint = [eWindow convertBaseToScreen: [theEvent locationInWindow]];
+     startPoint.x -= offset.width;
+     startPoint.y -= offset.height;
+     NSDebugLLog(@"NSDragging", @"Drag window origin %d %d\n", startPoint.x, startPoint.y);
+
+     // Notify the source that dragging has started
+     if ([dragSource respondsToSelector:
+         @selector(draggedImage:beganAt:)])
+       {
+         [dragSource draggedImage: [self draggedImage]
+   		       beganAt: startPoint];
+       }
+
+     // --- Setup up the masks for the drag operation ---------------------
+     if ([dragSource respondsToSelector:
+       @selector(ignoreModifierKeysWhileDragging)]
+       && [dragSource ignoreModifierKeysWhileDragging])
+       {
+         operationMask = NSDragOperationIgnoresModifiers;
+       }
+     else
+       {
+         operationMask = 0;
+         [self _updateOperationMask: theEvent];
+       }
+
+     dragMask = [dragSource draggingSourceOperationMaskForLocal: !destExternal];
+  
+     // --- Setup the event loop ------------------------------------------
+     [self _updateAndMoveImageToCorrectPosition];
+     //[NSEvent startPeriodicEventsAfterDelay: 0.02 withPeriod: 0.03];
+     [NSEvent startPeriodicEventsAfterDelay: 0.02
+                                 withPeriod: 0.03 
+                                      event: theEvent];
+  }
+
+
 
   // --- Loop that handles all events during drag operation -----------
-  while ([theEvent type] != NSLeftMouseUp)
-    {
+  //while ([theEvent type] != NSLeftMouseUp)
+  //  {
       [self _handleEventDuringDragging: theEvent];
+      
+      //printf("GSDragView loop.. event type = %i\n", [theEvent type]);
+      //theEvent = [NSApp nextEventMatchingMask: eventMask
+	//			    untilDate: theDistantFuture
+	//			       inMode: NSEventTrackingRunLoopMode
+	//			      dequeue: YES];
 
-      theEvent = [NSApp nextEventMatchingMask: eventMask
-				    untilDate: theDistantFuture
-				       inMode: NSEventTrackingRunLoopMode
-				      dequeue: YES];
-    }
+      /***
+      while ([theEvent type] == NSTouched) {
+         // We trapped a touch event, re-deliver it
+         [NSApp sendEvent: theEvent];
+         if ([theEvent touchCount] > 1) { // We have a multi-touch event, cancel tracking
+            gotMultiTouch = YES;
+            slideBack = YES; // Since we're cancelling the drag, image should slide back
+            newPosition = startPoint; // Need to reset newPosition b/c it's been changed by _handleEventDuringDragging
+            printf("GSDragView loop ending... \n");
+            break;
+         }
+         theEvent = [NSApp nextEventMatchingMask: eventMask
+                                       untilDate: theDistantFuture
+                                          inMode: NSEventTrackingRunLoopMode
+                                         dequeue: YES];
+      }
+      if (gotMultiTouch)
+         break;
+      ***/
+      
+   // }
 
-  // --- Event loop for drag operation stopped ------------------------
-  [NSEvent stopPeriodicEvents];
-  [self _updateAndMoveImageToCorrectPosition];
+  //eventType = [theEvent type];
+  if (eventType == NSLeftMouseUp)
+  {
+     BOOL deposited;
 
-  NSDebugLLog(@"NSDragging", @"dnd ending %d\n", targetWindowRef);
+     // --- Event loop for drag operation stopped ------------------------
+     //[NSEvent stopPeriodicEvents];
+     [NSEvent stopPeriodicEventsWithTrigger: theEvent];
+     [self _updateAndMoveImageToCorrectPosition];
 
-  // --- Deposit the drop ----------------------------------------------
-  if ((targetWindowRef != 0)
-    && ((targetMask & dragMask & operationMask) != NSDragOperationNone))
-    {
-      /* FIXME:
-       * We remove the dragged image from the screen before 
-       * sending the dnd drop event to the destination.
-       * This code should actually be rewritten, because
-       * the depositing of the drop consist of three steps
-       *  - prepareForDragOperation
-       *  - performDragOperation
-       *  - concludeDragOperation.
-       * The dragged image should be removed from the screen
-       * between the prepare and the perform operation.
-       * The three steps are now executed in the NSWindow class
-       * and the NSWindow class does not have access to
-       * the image.
-       */
-      [self _clearupWindow];
-      [cursorBeforeDrag set];
-      NSDebugLLog(@"NSDragging", @"sending dnd drop\n");
-      if (!destExternal)
+     NSDebugLLog(@"NSDragging", @"dnd ending %d\n", targetWindowRef);
+
+     // --- Deposit the drop ----------------------------------------------
+     //if (!gotMultiTouch && ((targetWindowRef != 0)
+     //  && ((targetMask & dragMask & operationMask) != NSDragOperationNone)))
+     if ((targetWindowRef != 0)
+       && ((targetMask & dragMask & operationMask) != NSDragOperationNone))
+       {
+         printf("deposit the drop\n");
+         /* FIXME:
+          * We remove the dragged image from the screen before 
+          * sending the dnd drop event to the destination.
+          * This code should actually be rewritten, because
+          * the depositing of the drop consist of three steps
+          *  - prepareForDragOperation
+          *  - performDragOperation
+          *  - concludeDragOperation.
+             * The dragged image should be removed from the screen
+          * between the prepare and the perform operation.
+          * The three steps are now executed in the NSWindow class
+          * and the NSWindow class does not have access to
+          * the image.
+          */
+         [self _clearupWindow];
+         [_cursorBeforeDrag set];
+         NSDebugLLog(@"NSDragging", @"sending dnd drop\n");
+         if (!destExternal)
+           {
+             [self _sendLocalEvent: GSAppKitDraggingDrop
+                            action: 0
+                          position: NSZeroPoint
+		                     timestamp: [theEvent timestamp]
+                          toWindow: destWindow];
+           }
+         else
+           {
+             [self sendExternalEvent: GSAppKitDraggingDrop
+                              action: 0
+		                        position: NSZeroPoint
+		                       timestamp: [theEvent timestamp]
+		                        toWindow: targetWindowRef];
+           }
+         deposited = YES;
+       }
+     else
+       {
+         printf("not deposited\n");
+         if (slideBack)
+           { 
+             printf("slideBack is YES\n");
+
+             // Release last event before assigning a new one
+             // This event is used for generating periodic events when sliding image
+             if (_eventCausingSlide != nil) {
+               RELEASE(_eventCausingSlide);
+             }
+             _eventCausingSlide = RETAIN(theEvent);
+
+             [self slideDraggedImageTo: _slidePoint];
+           }
+         [self _clearupWindow];
+         [_cursorBeforeDrag set];
+         deposited = NO;
+       }
+
+     if ([dragSource respondsToSelector:
+                         @selector(draggedImage:endedAt:operation:)])
         {
-          [self _sendLocalEvent: GSAppKitDraggingDrop
-                         action: 0
-                       position: NSZeroPoint
-		                  timestamp: [theEvent timestamp]
-                       toWindow: destWindow];
-        }
-      else
-        {
-          [self sendExternalEvent: GSAppKitDraggingDrop
-                           action: 0
-		                     position: NSZeroPoint
-		                    timestamp: [theEvent timestamp]
-		                     toWindow: targetWindowRef];
-        }
-      deposited = YES;
-    }
-  else
-    {
-      if (slideBack)
-        {
-          [self slideDraggedImageTo: slidePoint];
-        }
-      [self _clearupWindow];
-      [cursorBeforeDrag set];
-      deposited = NO;
-    }
-
-  if ([dragSource respondsToSelector:
-                      @selector(draggedImage:endedAt:operation:)])
-     {
-       NSPoint point;
+          printf("dragSource respondes to... #1\n");
+          NSPoint point;
            
-       point = [theEvent locationInWindow];
-       // Convert from mouse cursor coordinate to image coordinate
-       point.x -= offset.width;
-       point.y -= offset.height;
-       point = [[theEvent window] convertBaseToScreen: point];
-       [dragSource draggedImage: [self draggedImage]
-                        endedAt: point
-                      operation: targetMask & dragMask & operationMask];
-     }
-   else if ([dragSource respondsToSelector:
-                            @selector(draggedImage:endedAt:deposited:)])
-    {
-      NSPoint point;
+          point = [theEvent locationInWindow];
+          // Convert from mouse cursor coordinate to image coordinate
+          point.x -= offset.width;
+          point.y -= offset.height;
+          point = [[theEvent window] convertBaseToScreen: point];
+          [dragSource draggedImage: [self draggedImage]
+                           endedAt: point
+                         operation: targetMask & dragMask & operationMask];
+        }
+      else if ([dragSource respondsToSelector:
+                               @selector(draggedImage:endedAt:deposited:)])
+       {
+         printf("dragSource respondes to... #2\n");
+         NSPoint point;
           
-      point = [theEvent locationInWindow];
-      // Convert from mouse cursor coordinate to image coordinate
-      point.x -= offset.width;
-      point.y -= offset.height;
-      point = [[theEvent window] convertBaseToScreen: point];
-      [dragSource draggedImage: [self draggedImage]
-                       endedAt: point
-                     deposited: deposited];
-    }
+         point = [theEvent locationInWindow];
+         // Convert from mouse cursor coordinate to image coordinate
+         point.x -= offset.width;
+         point.y -= offset.height;
+         point = [[theEvent window] convertBaseToScreen: point];
+         [dragSource draggedImage: [self draggedImage]
+                          endedAt: point
+                        deposited: deposited];
+       }
+  }
 }
 
 /*
@@ -749,8 +822,11 @@ static	GSDragView *sharedDragView = nil;
  */
 - (void) _handleEventDuringDragging: (NSEvent *)theEvent
 {
+  //printf("_handleEventDuringDragging, event type = %i\n", [theEvent type]);
   switch ([theEvent type])
     {
+    // NSAppKitDefined events will never get here since we're
+    // no longer hijacking events in a loop. Remove case?
     case  NSAppKitDefined:
       {
         GSAppKitSubtype	sub = [theEvent subtype];
@@ -766,7 +842,10 @@ static	GSDragView *sharedDragView = nil;
           [NSApp sendEvent: theEvent];
           break;
           
+        // FIXME Now GSAppKitDraggingStatus events will not get here because
+        // they get dropped by NSWindow. How can we get them to the view?
         case GSAppKitDraggingStatus:
+          //printf("GSDragView got GSAppKitDraggingStatus event!\n");
           NSDebugLLog(@"NSDragging", @"got GSAppKitDraggingStatus\n");
           if ((int)[theEvent data1] == targetWindowRef)
             {
@@ -805,6 +884,7 @@ static	GSDragView *sharedDragView = nil;
                        [theEvent locationInWindow]];
       break;
     case NSFlagsChanged:
+      printf("GSDragView got NSFlagsChanged event!\n");
       if ([self _updateOperationMask: theEvent])
         {
           // If flags change, send update to allow
@@ -830,6 +910,7 @@ static	GSDragView *sharedDragView = nil;
       break;
     case NSPeriodic:
       newPosition = [NSEvent mouseLocation];
+      //printf("newPosition.x = %f, dragPosition.x = %f\n", newPosition.x, dragPosition.x);
       if (newPosition.x != dragPosition.x || newPosition.y != dragPosition.y) 
         {
           [self _updateAndMoveImageToCorrectPosition];
@@ -871,6 +952,9 @@ static	GSDragView *sharedDragView = nil;
   [self _moveDraggedImageToNewPosition];
   
   //--- Determine target window ---------------------------------------------
+  // Actually calls gnustep-back-0.17.1/Source/x11/xGDragView.m:305
+  // which sets mouseWindowRef to zero if we don't pass in a pasteboard
+  // to dragImage
   destWindow = [self windowAcceptingDnDunder: dragPosition
                                    windowRef: &mouseWindowRef];
 
@@ -971,6 +1055,7 @@ static	GSDragView *sharedDragView = nil;
         }
     }
 
+  //printf("targetWindowRef = %i, mouseWindowRef = %i\n", targetWindowRef, mouseWindowRef);
   if (targetWindowRef != mouseWindowRef)
     {
       targetWindowRef = mouseWindowRef;
@@ -1001,14 +1086,26 @@ static	GSDragView *sharedDragView = nil;
 /*
  * NB. screenPoint here is the position of the mouse cursor.
  */
+// 5/21/2010
+// We're not supposed to hijack events from the event queue, but since the
+// sliding operation completes rather quickly (loop won't last for long), 
+// and to avoid major rework for all the function calls along the event 
+// delivery path, we will keep the loop for now and see how it works out
 - (void) _slideDraggedImageTo: (NSPoint)screenPoint
                 numberOfSteps: (int)steps
 			delay: (float)delay
                waitAfterSlide: (BOOL)waitFlag
 {
+  NSView *parentView = nil;
+
+  if (_eventCausingSlide != nil)
+     parentView = [_eventCausingSlide view];
+
   /* If we do not need multiple redrawing, just move the image immediately
    * to its desired spot.
    */
+  //printf("steps = %i\n", steps);
+  //steps = 5;
   if (steps < 2)
     {
       newPosition = screenPoint;
@@ -1016,17 +1113,30 @@ static	GSDragView *sharedDragView = nil;
     }
   else
     {
-      [NSEvent startPeriodicEventsAfterDelay: delay withPeriod: delay];
+      if (_eventCausingSlide != nil)
+        [NSEvent startPeriodicEventsAfterDelay: delay withPeriod: delay event: _eventCausingSlide];
+      else
+        [NSEvent startPeriodicEventsAfterDelay: delay withPeriod: delay];
 
       // Use the event loop to redraw the image repeatedly.
       // Using the event loop to allow the application to process
       // expose events.  
       while (steps)
         {
-          NSEvent *theEvent = [NSApp nextEventMatchingMask: NSPeriodicMask
-                                     untilDate: [NSDate distantFuture]
-                                     inMode: NSEventTrackingRunLoopMode
-                                     dequeue: YES];
+          NSEvent *theEvent;
+
+          // modified version of startPeriodicEvents uses default runloop mode
+          if (_eventCausingSlide != nil)
+             theEvent = [NSApp nextEventMatchingMask: NSPeriodicMask
+                                           untilDate: [NSDate distantFuture]
+                                              //inMode: NSEventTrackingRunLoopMode
+                                              inMode: NSDefaultRunLoopMode
+                                             dequeue: YES];
+          else
+             theEvent = [NSApp nextEventMatchingMask: NSPeriodicMask
+                                           untilDate: [NSDate distantFuture]
+                                              inMode: NSEventTrackingRunLoopMode
+                                             dequeue: YES];
           
           if ([theEvent type] != NSPeriodic)
             {
@@ -1034,6 +1144,14 @@ static	GSDragView *sharedDragView = nil;
 			   @"Unexpected event type: %d during slide",
                            [theEvent type]);
             }
+ 
+          // Re-send events which are apparently not ours
+          if ([theEvent view] != nil && parentView != nil && [theEvent view] != parentView)
+            {
+              [NSApp sendEvent: theEvent];
+              continue;
+            }
+
           newPosition.x = (screenPoint.x + ((float) steps - 1.0) 
 			   * dragPosition.x) / ((float) steps);
           newPosition.y = (screenPoint.y + ((float) steps - 1.0) 
@@ -1042,8 +1160,17 @@ static	GSDragView *sharedDragView = nil;
           [self _moveDraggedImageToNewPosition];
           steps--;
         }
-      [NSEvent stopPeriodicEvents];
+
+      if (_eventCausingSlide != nil)
+        [NSEvent stopPeriodicEventsWithTrigger: _eventCausingSlide];
+      else
+        [NSEvent stopPeriodicEvents];
     }
+
+  if (_eventCausingSlide != nil) {
+    RELEASE(_eventCausingSlide);
+    _eventCausingSlide = nil;
+  }
 
   if (waitFlag)
     {

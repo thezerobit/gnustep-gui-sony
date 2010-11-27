@@ -52,6 +52,24 @@
   return [NSMenuView menuBarHeight] + 1;
 }
 
+//
+// Handling touch events... for testing purpose
+//
+- (void) touchesBeganWithEvent: (NSEvent *) theEvent
+{
+   printf("GSTitleView: touchesBeganWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
+- (void) touchesMovedWithEvent: (NSEvent *) theEvent
+{
+   printf("GSTitleView: touchesMovedWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
+- (void) touchesEndedWithEvent: (NSEvent *) theEvent
+{
+   printf("GSTitleView: touchesEndedWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
 - (id) init
 {
   self = [super init];
@@ -266,14 +284,20 @@
 {
   NSPoint  lastLocation;
   NSPoint  location;
-  unsigned eventMask = NSLeftMouseUpMask | NSPeriodicMask;
+  unsigned eventMask = NSLeftMouseUpMask | NSPeriodicMask | SNTouchedMask | NSLeftMouseDraggedMask
+                       | NSRightMouseDownMask | NSRightMouseUpMask | NSRightMouseDraggedMask; 
+                       //<p>FIXME</p> left mouse drag & right mouse down/up/drag added temporarily
+                       //for testing purpose only;
+                       //left mouse drag needs to stay for correct touch event delivery
   BOOL     done = NO;
   BOOL	   moved = NO;
   NSDate   *theDistantFuture = [NSDate distantFuture];
   NSPoint  startWindowOrigin;
   NSPoint  endWindowOrigin;
+  NSEventType type;
 
   NSDebugLLog (@"NSMenu", @"Mouse down in title!");
+  //printf("GSTitleView mouseDown\n");
 
   // Remember start position of window
   startWindowOrigin = [_window frame].origin;
@@ -287,11 +311,26 @@
 
   while (!done)
     {
+      //printf("GSTitleView loop..\n");
       theEvent = [NSApp nextEventMatchingMask: eventMask
                                     untilDate: theDistantFuture
                                        inMode: NSEventTrackingRunLoopMode
                                       dequeue: YES];
-      switch ([theEvent type])
+      type = [theEvent type];
+
+      if (type == SNTouched) {
+         // We trapped a touch event, re-deliver it
+         //printf("GSTitleView delivering touch event\n");
+         [NSApp sendEvent: theEvent];
+         if ([theEvent touchCount] > 1) { // We have a multi-touch event, cancel tracking
+            printf("GSTitleView loop ending... \n");
+            [_window _releaseMouse: nil];
+            break;
+         }
+         continue;
+      }
+      
+      switch (type)
         {
         case NSRightMouseUp:
         case NSLeftMouseUp: 

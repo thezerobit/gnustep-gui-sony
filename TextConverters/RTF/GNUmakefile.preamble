@@ -46,7 +46,7 @@ ADDITIONAL_CFLAGS +=
 #ADDITIONAL_CFLAGS += 
 
 # Additional include directories the compiler should search
-ADDITIONAL_INCLUDE_DIRS +=-I../../Headers/Additions -I../../Headers
+ADDITIONAL_INCLUDE_DIRS +=-I../../Headers/Additions -I../../Headers -I$(WORKSPACE_ROOT)/src/include
 
 # Additional LDFLAGS to pass to the linker
 #ADDITIONAL_LDFLAGS += 

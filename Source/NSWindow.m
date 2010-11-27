@@ -64,6 +64,7 @@
 #include "AppKit/NSDragging.h"
 #include "AppKit/NSEvent.h"
 #include "AppKit/NSFont.h"
+#include "AppKit/SNGestureRecognizer.h"
 #include "AppKit/NSGraphics.h"
 #include "AppKit/NSHelpManager.h"
 #include "AppKit/NSImage.h"
@@ -75,6 +76,7 @@
 #include "AppKit/NSView.h"
 #include "AppKit/NSWindow.h"
 #include "AppKit/NSWindowController.h"
+#include "AppKit/SNTouch.h"
 #include "AppKit/PSOperators.h"
 #include "GNUstepGUI/GSTrackingRect.h"
 #include "GNUstepGUI/GSDisplayServer.h"
@@ -458,6 +460,7 @@ static NSSize scaledIconSizeForSize(NSSize imageSize)
 
       while (!done)
         {
+          printf("NSMiniWindowView calling nextEventMatchingMask\n");
           theEvent = [NSApp nextEventMatchingMask: eventMask
                                         untilDate: theDistantFuture
                                            inMode: NSEventTrackingRunLoopMode
@@ -472,6 +475,7 @@ static NSSize scaledIconSizeForSize(NSSize imageSize)
                 done = YES;
                 break;
               case NSPeriodic:
+                //printf("NSWindow NSPeriodic\n"); //not printed...
                 location = [_window mouseLocationOutsideOfEventStream];
                 if (NSEqualPoints(location, lastLocation) == NO)
                   {
@@ -731,6 +735,7 @@ many times.
 
 - (void) dealloc
 {
+  //printf("NSWindow %i dealloc()\n", _windowNum);
   [self setToolbar: nil];
   [nc removeObserver: self];
   [isa _removeAutodisplayedWindow: self];
@@ -1896,6 +1901,7 @@ many times.
       t = 1.0;
       while (t > 0.0)
         {
+          printf("NSWindow calling nextEventMatchingMask\n");
           NSEvent *theEvent = [NSApp nextEventMatchingMask: NSPeriodicMask
                                      untilDate: [NSDate distantFuture]
                                      inMode: NSEventTrackingRunLoopMode
@@ -2016,6 +2022,11 @@ many times.
 - (NSRect) frame
 {
   return _frame;
+}
+
+- (int) windowNum
+{
+  return _windowNum;
 }
 
 - (NSSize) minSize
@@ -2613,9 +2624,11 @@ resetCursorRectsForView(NSView *theView)
 
   if (_f.is_key && _f.cursor_rects_enabled)
     {
-      NSPoint loc = [self mouseLocationOutsideOfEventStream];
+      //printf("NSWindow resetCursorRects\n"); //printed only when cursor clicks new area..
+      NSPoint loc = [self mouseLocationOutsideOfEventStream]; 
       if (NSMouseInRect(loc, [_wv bounds], NO))
         {
+          //printf("NSWindow creating mouse event...\n");
           NSEvent *e = [NSEvent mouseEventWithType: NSMouseMoved
                                           location: loc
                                      modifierFlags: 0
@@ -2637,6 +2650,7 @@ resetCursorRectsForView(NSView *theView)
  */
 - (void) close
 {
+  //printf("NSWindow %i close()\n", _windowNum);
   if (_f.has_closed == NO)
     {
       CREATE_AUTORELEASE_POOL(pool);
@@ -2657,6 +2671,11 @@ resetCursorRectsForView(NSView *theView)
       [NSApp removeWindowsItem: self];
       [self orderOut: self];
       RELEASE(pool);
+      //printf("NSWindow %i dictionary retaincount = %i\n", _windowNum, [_touchViewDictionary retainCount]);
+      printf("destroying dictionary...\n");
+      //DESTROY(_touchViewDictionary);
+      DESTROY(_mouseViewDictionary);
+      //printf("NSWindow %i dictionary retaincount = %i\n", _windowNum, [_touchViewDictionary retainCount]);
       _f.has_closed = YES;
       RELEASE(self);
     }
@@ -3228,6 +3247,7 @@ resetCursorRectsForView(NSView *theView)
   int screen;
   NSPoint p;
 
+  //printf("NSWindow mouseLocationOutsideOfEventStream\n");
   screen = [_screen screenNumber];
   p = [GSServerForWindow(self) mouseLocationOnScreen: screen window: NULL];
   if (p.x != -1)
@@ -3256,6 +3276,7 @@ resetCursorRectsForView(NSView *theView)
 
 - (void) postEvent: (NSEvent*)event atStart: (BOOL)flag
 {
+  //printf("NSWindow postEvent\n");
   [NSApp postEvent: event atStart: flag];
 }
 
@@ -3487,6 +3508,144 @@ resetCursorRectsForView(NSView *theView)
   return NO;
 }
 
+- (void) cleanMouseViewDictionary
+{
+   if (_mouseViewDictionary != nil) {
+      [_mouseViewDictionary removeAllObjects];
+   }
+}
+
+- (NSView*) viewForMouseEvent: (NSEvent*)theEvent
+{
+   if (theEvent->view != nil)
+      return theEvent->view;
+
+   NSNumber *key;
+   NSView *vi;
+   //key = [NSNumber numberWithUnsignedLongLong: ((unsigned long long int)[theEvent sequence] << 32 | 
+   //                                             (unsigned long long int)(theEvent->mouse_id))];
+   key = [NSNumber numberWithUnsignedInteger: [theEvent mouse]];
+
+   // 7/20/2010: do hit-test only for mouseDown events
+   // For mouseDragged and mouseUp events, if record is not found in dictionary, 
+   // it means mouseDown started in a view that doesn't support multi-touch
+   if (!(vi = [_mouseViewDictionary objectForKey: key]) && [theEvent type] == NSLeftMouseDown) {
+      vi = [_wv hitTest: [theEvent locationInWindow]];
+
+      if ([vi supportsMultiTouch])
+         [_mouseViewDictionary setObject: vi forKey: key];
+   }
+   theEvent->view = RETAIN(vi);
+
+   return vi;
+}
+
+- (void) sendTouchesToGestureRecognizers: (NSSet *)touches 
+                               withEvent: (NSEvent *)theEvent
+                                 inPhase: (SNTouchPhase)phase
+                                  inView: (NSView *)aView
+{
+   //NSEnumerator *enumerator = [[aView gestureRecognizers] objectEnumerator];
+   //SNGestureRecognizer *recognizer;
+
+   NSEnumerator *enumerator;;
+   SNGestureRecognizer *recognizer;
+   id currentView = aView;
+
+   do
+   {
+      printf("currentView = %s\n", [[currentView description] cString]);
+
+      if (![currentView isKindOfClass: [NSView class]])
+      {
+         //Stop - we have reached the NSWindow object
+         break;
+      }
+
+      enumerator = [[currentView gestureRecognizers] objectEnumerator];
+      while ((recognizer = [enumerator nextObject]))
+      {
+         //printf("gesture recognizer %s state = %i\n", [[recognizer description] cString], [recognizer state]);
+
+         if (![recognizer enabled])
+            continue;
+
+         if ([recognizer state] == SNGestureRecognizerStatePossible ||
+             [recognizer state] == SNGestureRecognizerStateBegan ||
+             [recognizer state] == SNGestureRecognizerStateChanged)
+         {
+            switch (phase) 
+            {
+               case SNTouchPhaseBegan:
+                  [recognizer touchesBegan: touches withEvent: theEvent];
+                  break;
+               case SNTouchPhaseMoved:
+                  if ([recognizer hasBegun])
+                     [recognizer touchesMoved: touches withEvent: theEvent];
+                  break;
+               case SNTouchPhaseEnded:
+                  if ([recognizer hasBegun])
+                     [recognizer touchesEnded: touches withEvent: theEvent];
+                  break;
+               case SNTouchPhaseCancelled:
+                  if ([recognizer hasBegun])
+                     [recognizer touchesCancelled: touches withEvent: theEvent];
+                  break;
+               case SNTouchPhaseStationary: // No matching handler for stationary phase
+                  break;
+            }
+         }
+      }
+
+   }
+   while ([currentView allowsNextResponderToRecognizeGestures] && 
+          (currentView = [currentView nextResponder]));
+
+   /***
+   while ((recognizer = [enumerator nextObject]))
+   {
+      if ([recognizer state] == SNGestureRecognizerStatePossible ||
+          [recognizer state] == SNGestureRecognizerStateBegan ||
+          [recognizer state] == SNGestureRecognizerStateChanged)
+      {
+         switch (phase) 
+         {
+            case SNTouchPhaseBegan:
+               [recognizer touchesBegan: touches withEvent: theEvent];
+               break;
+            case SNTouchPhaseMoved:
+               [recognizer touchesMoved: touches withEvent: theEvent];
+               break;
+            case SNTouchPhaseEnded:
+               [recognizer touchesEnded: touches withEvent: theEvent];
+               break;
+            case SNTouchPhaseCancelled:
+               [recognizer touchesCancelled: touches withEvent: theEvent];
+               break;
+            case SNTouchPhaseStationary: // No matching handler for stationary phase
+               break;
+         }
+
+         ///// This should be done by the recognizer itself
+         //if ([recognizer state] == SNGestureRecognizerStateRecognized ||
+         //    [recognizer state] == SNGestureRecognizerStateBegan ||
+         //    [recognizer state] == SNGestureRecognizerStateChanged)
+         //{
+         //   [recognizer tryToSendAction]; // This method may call notifySuccess
+         //}
+         //else if ([recognizer state] == SNGestureRecognizerStateFailed)
+         //{
+         //   [recognizer notifyFailure];
+         //}
+         //////
+      }
+   }
+   ***/
+
+
+
+}
+
 /** Handles mouse and other events sent to the receiver by NSApplication.
     Do not invoke this method directly.
 */
@@ -3494,6 +3653,8 @@ resetCursorRectsForView(NSView *theView)
 {
   NSView *v;
   NSEventType type;
+
+  //printf("NSWindow sendEvent(): type = %i, winNum = %i\n", [theEvent type], _windowNum);
 
   /*
   If the backend reacts slowly, events (eg. mouse down) might arrive for a
@@ -3525,10 +3686,99 @@ resetCursorRectsForView(NSView *theView)
       case NSLeftMouseDown:
         {
           BOOL wasKey = _f.is_key;
+          //printf("NSWindow case NSLeftMouseDown, mouse_id = %i\n", [theEvent mouse]);
 
           if (_f.has_closed == NO)
             {
-              v = [_wv hitTest: [theEvent locationInWindow]];
+              ///// Assign view to mouse, either through dictionary or hitTest /////
+              // Allocate for dictionary if necessary
+              if (_mouseViewDictionary == nil) {
+                 _mouseViewDictionary = [[NSMutableDictionary alloc] initWithCapacity: 2]; //NSMutableDictionary allocates additional memory if needed
+              }
+ 
+              NSView *vi;
+              NSNumber *key;
+              //key = [NSNumber numberWithUnsignedLongLong: ((unsigned long long int)[theEvent sequence] << 32 | 
+              //                                             (unsigned long long int)(theEvent->mouse_id))];
+
+              key = [NSNumber numberWithUnsignedInteger: [theEvent mouse]];
+
+              if (!(vi = [_mouseViewDictionary objectForKey: key])) {
+                 vi = [_wv hitTest: [theEvent locationInWindow]];
+
+                 if ([vi supportsMultiTouch])
+                    [_mouseViewDictionary setObject: vi forKey: key];
+              }
+              theEvent->view = RETAIN(vi);
+              printf("vi = %s, supports MT = %i\n", [[vi description] cString], [vi supportsMultiTouch]);
+ 
+
+
+
+              if ([vi supportsMultiTouch])
+              {
+
+
+
+
+
+              if ([_mouseViewDictionary count] == 1) {
+                 _firstViewTouched = vi;
+              }
+
+              //if ([theEvent subtype] == NSMouseEventSubtype) {
+              //   [self incrementMouseCount];
+                 [vi incrementMouseCount];
+              //}
+
+              // Set window and view's first mouse
+              //if ([self mouseCount] == 1) {
+              //   [self setFirstMouse: [theEvent mouse]];
+              //}
+              //printf("view mouse count = %i\n", [vi mouseCount]);
+              if ([vi mouseCount] == 1) {
+                 [vi setFirstMouse: [theEvent mouse]];
+              }
+  
+              // Set first mouse location for view
+              if ([theEvent mouse] == [vi firstMouse]) {
+                 [vi setFirstMouseLocationInView: [vi convertPoint: [theEvent locationInWindow] fromView: nil]];
+              }
+
+              // Only send event if user interaction is enabled
+              if (![vi userInteractionEnabled]) {
+                 return;
+              }
+ 
+              // If multipleTouch is not enabled, ignore all but first mouse
+              if (![vi multipleTouchEnabled] && [vi firstMouse] != [theEvent mouse]) {
+                 printf("NSWindow: disgarding all but first mouse...\n");
+                 printf("view mouse count = %i, view first mouse = %i, event mouse = %i\n", 
+                        [vi mouseCount], [vi firstMouse], [theEvent mouse]);
+                 return;
+              }
+
+              // If first touched view's exclusiveTouch is set to YES, it is the only view that can receive touches throughout a multi-touch sequence.
+              // If set to NO, then other views can receive touches only if they are also non-exclusive
+              if (([_firstViewTouched exclusiveTouch] && vi != _firstViewTouched) || 
+                  (![_firstViewTouched exclusiveTouch] && [vi exclusiveTouch])) {
+                 return;
+              }
+              ///// End of view assignment code /////
+              
+
+
+
+
+              } // End of if ([vi supportsMultiTouch])
+
+
+
+
+
+              //v = [_wv hitTest: [theEvent locationInWindow]];
+              v = vi;
+
               if (_f.is_key == NO && _windowLevel != NSDesktopWindowLevel)
                 {
                   /* NSPanel modification: check becomesKeyOnlyIfNeeded. */
@@ -3563,6 +3813,7 @@ resetCursorRectsForView(NSView *theView)
                 }
               if (_firstResponder != v)
                 {
+                  //printf("_firstResponder != v\n");
                   // Only try to set first responder, when the view wants it.
                   if ([v acceptsFirstResponder] && ![self makeFirstResponder: v])
                     {
@@ -3571,6 +3822,7 @@ resetCursorRectsForView(NSView *theView)
                 }
               if (wasKey == YES || [v acceptsFirstMouse: theEvent] == YES)
                 {
+                  //printf("wasKey == YES || [v acceptsFirstMouse: theEvent] == YES\n");
                   if ([NSHelpManager isContextHelpModeActive])
                     {
                       [v helpRequested: theEvent];
@@ -3585,7 +3837,11 @@ resetCursorRectsForView(NSView *theView)
                            */
                           [toolTipVisible mouseDown: theEvent];
                         }
-                      [v mouseDown: theEvent];
+                      //printf("NSWindow calling v mouseDown\n");
+                      //printf("NSWindow v: %s\n", [[v description] cString]);
+                      //[v mouseDown: theEvent];
+
+                      [[theEvent view] mouseDown: theEvent];
                     }
                 }
               else
@@ -3597,14 +3853,437 @@ resetCursorRectsForView(NSView *theView)
           break;
         }
 
-      case NSLeftMouseUp:
-        v = AUTORELEASE(RETAIN(_lastView));
-        DESTROY(_lastView);
-        if (v == nil)
-          break;
-        [v mouseUp: theEvent];
+      case SNTouched: {
+         //v = [_wv hitTest: [theEvent locationInWindow]];
+         BOOL hit;
+         unsigned long long int maskArray[10]; //max 10 view/phase combinations, should be more than enough
+
+         int i;
+         for (i = 9; i >=0; i--) {
+            maskArray[i] = 0LLU;
+         }
+
+         /***
+         unsigned long long int mask1 = ((unsigned long long int)v << 32) | (unsigned long long int)SNTouchPhaseBegan;
+         unsigned long long int mask2 = ((unsigned long long int)v << 32) | (unsigned long long int)SNTouchPhaseMoved;
+         printf("size of mask1 is %i bytes\n", sizeof(mask1));
+         printf("mask1 = %llu\n", mask1);
+         printf("mask2 = %llu\n", mask2);
+         
+         if (!(mask1 ^ mask2)) {
+            printf("mask1 and mask2 are the same\n");
+         } else {
+            printf("mask1 and mask2 are different\n");
+         }
+         ***/
+
+         /***
+         NSMutableDictionary *dictionary = [NSMutableDictionary dictionaryWithCapacity: 3];
+         [dictionary setObject: @"Patrick" forKey: [NSNumber numberWithUnsignedInt: 1U]];
+         [dictionary setObject: @"Beverly" forKey: [NSNumber numberWithUnsignedInt: 2U]];
+         [dictionary setObject: v forKey: [NSNumber numberWithUnsignedInt: 3U]];
+         id obj1 = [dictionary objectForKey: [NSNumber numberWithUnsignedInt: 1U]];
+         id obj2 = [dictionary objectForKey: [NSNumber numberWithUnsignedInt: 2U]];
+         printf("obj1 = %s, obj2 = %s\n", [[obj1 description] cString], [[obj2 description] cString]);
+         ***/
+
+         // Allocate for dictionary if necessary
+         if (_mouseViewDictionary == nil) {
+            printf("allocating for dictionary...\n");
+            //_mouseViewDictionary = [NSMutableDictionary dictionaryWithCapacity: 3]; //don't use convenience method, or dictionary would get 
+                                                                                      //deallocated every time sendEvent() ends
+
+            _mouseViewDictionary = [[NSMutableDictionary alloc] initWithCapacity: 3]; //NSMutableDictionary allocates additional memory if needed
+         }
+
+         /*
+          * A view is associated with a touch when the touch begins, and it remains the same throughout a multi-touch sequence.
+          * We build a dictionary to record the view associated with each touch.
+          * The key is the combination of the sequence number and the touch identity, combined into a 64-bit bit mask.
+          * The value is a pointer to the associated view for the touch.
+          */
+         NSEnumerator *enumerator1 = [theEvent->touches objectEnumerator];
+         SNTouch *touch;
+         NSView *vi;
+         NSNumber *key;
+         // Assign a view to each touch, either through dictionary or hitTest
+         while ((touch = [enumerator1 nextObject])) {
+
+            if ([touch window] != self) // Skip touches meant for other windows
+               continue;
+
+            //key = [NSNumber numberWithUnsignedLongLong: ((unsigned long long int)[theEvent sequence] << 32 | 
+            //                                             (unsigned long long int)[touch identity])];
+            key = [NSNumber numberWithUnsignedInteger: [touch identity]];
+
+            // 7/20/2010: only do hit-test for touchBegan phase
+            if (!(vi = [_mouseViewDictionary objectForKey: key]) && [touch phase] == SNTouchPhaseBegan) {
+               vi = [_wv hitTest: [touch locationInWindow]];
+
+               if ([vi supportsMultiTouch])
+                  [_mouseViewDictionary setObject: vi forKey: key];
+            }
+            [touch setView: vi];
+
+
+
+
+            ///// for demo purpose...
+            if ([vi zoomMode] && [touch identity] == 1)
+            {
+               NSPoint location = [touch locationInWindow];
+               NSPoint location2;
+               NSPoint center = NSMakePoint(178, 328); //launch image
+               location2 = NSMakePoint((location.x<center.x)? center.x+(center.x-location.x) : center.x-(location.x-center.x), 
+                                       (location.y<center.y)? center.y+(center.y-location.y) : center.y-(location.y-center.y));
+
+               SNTouch *touch2 = [SNTouch touchWithIdentity: 2
+                                                      phase: [touch phase]
+                                                     window: [touch window]
+                                                     //window: [self windowWithWindowNumber: 13]
+                                        locationInWindow: location2];
+
+               touch2->tapCount = [theEvent clickCount];
+               [theEvent->touches addObject: touch2];
+            }
+            //////
+
+
+
+
+
+
+
+            // don't bother if view doesn't support multi-touch
+            if (![vi supportsMultiTouch])
+               continue;
+
+
+            if ([touch phase] == SNTouchPhaseBegan) {
+
+               if ([_mouseViewDictionary count] == 1) {
+                  _firstViewTouched = vi;
+               }
+ 
+               //[self incrementTouchCount]; 
+               //[self incrementMouseCount];
+               [vi incrementTouchCount];
+               //[vi incrementMouseCount];
+
+               // Set window and view's first touch
+               //if ([self touchCount] == 1) {
+               //   [self setFirstTouch: [touch identity]];
+               //}
+               if ([vi touchCount] == 1) {
+                  [vi setFirstTouch: [touch identity]];
+               }
+            }
+
+            // Update first touch location for view
+            if ([touch identity] == [vi firstTouch]) {
+               [vi setFirstTouchLocationInView: [touch locationInView]];
+            }
+
+            /******
+            // Remove touch from dictionary if it has ended or been cancelled
+            if ([touch phase] == SNTouchPhaseEnded || [touch phase] == SNTouchPhaseCancelled) {
+               [_touchViewDictionary removeObjectForKey: key];
+               [self decrementTouchCount];
+               [self decrementMouseCount];
+               [vi decrementTouchCount];
+               [vi decrementMouseCount];
+            }
+            *******/
+         }
+
+         // Set window and view's first touch
+         // If two or more fingers touch down the same window/view at exactly the same time, first touch is undefined
+         /***
+         NSEnumerator *enumerator2 = [theEvent->touches objectEnumerator];
+         while ((touch = [enumerator2 nextObject])) {
+
+            if ([touch window] != self) // Skip touches meant for other windows
+               continue;
+
+            if ([touch phase] == SNTouchPhaseBegan) {
+               if ([self touchCount] == 1) {
+                  [self setFirstTouch: [touch identity]];
+               }
+               if ([[touch view] touchCount] == 1) {
+                  [[touch view] setFirstTouch: [touch identity]];
+               }
+            } 
+         }
+         ***/
+
+         //printf("win number = %i, touch count = %i, first touch = %i\n", _windowNum, [self touchCount], [self firstTouch]);
+
+         /***
+         // Clean dictionary entries if this is the end of a multi-touch sequence
+         if ([theEvent endOfSequence]) {
+            printf("cleaning dictionary entries...\n");
+            [_touchViewDictionary removeAllObjects];
+         }
+         ***/
+
+         //printf("NSWindow: event->touches retainCount = %i\n", [theEvent->touches retainCount]); //prints 1
+         NSEnumerator *enumerator3 = [theEvent->touches objectEnumerator];
+         //printf("NSWindow: event->touches retainCount = %i\n", [theEvent->touches retainCount]); //prints 2
+         while ((touch = [enumerator3 nextObject])) {
+
+            if ([touch window] != self) // Skip touches meant for other windows
+               continue;
+
+            SNTouchPhase phase = [touch phase];
+            v = [touch view];
+
+            // don't send touch events to view if view doesn't support multi-touch
+            if (![v supportsMultiTouch])
+               continue;
+
+
+            /*
+             * Test to see if we should deliver this touch.
+             * For each view, we deliver touches in the same phase only once during each event occurrence.
+             * E.g. If two fingers touch down on a view at the same time, we only invoke touchesBegan once.
+             * We combine view pointer and phase into a 64-bit bit mask, and store in an array.
+             * If a view/phase combination has been invoked (i.e. found in array), we skip this touch.
+             */
+            unsigned long long int mask = ((unsigned long long int)v << 32) | (unsigned long long int)phase;            
+            i = 0; hit = NO;
+            do {
+               if (maskArray[i] == 0) { //no match found, add mask to array
+                  maskArray[i] = mask;
+                  break;
+               }
+               if (!(mask ^ maskArray[i])) { //found a match
+                  hit = YES;
+                  break;
+               }
+               i++;
+            } while (i <= 9);
+
+            // 1st Test ==> userInteractionEnabled
+            // 2nd Test ==> Send event only if this is first time we see this view/phase combination
+            //              Otherwise, skip to next touch
+            // 3rd test ==> If first touched view's exclusiveTouch is set to YES, it is the only view that can receive 
+            //              touches throughout a multi-touch sequence.
+            //              If set to NO, then other views can receive touches only if they are also non-exclusive
+            if ([v userInteractionEnabled] && !hit && (([_firstViewTouched exclusiveTouch] && v == _firstViewTouched) || 
+                                                       (![_firstViewTouched exclusiveTouch] && ![v exclusiveTouch]))) 
+            {
+               NSSet *touchSet;
+
+               if ([v multipleTouchEnabled]) 
+               {
+                  switch (phase) 
+                  {
+                     case SNTouchPhaseBegan:
+                        touchSet = [theEvent touchesMatchingPhase: SNTouchPhaseBegan inView: v];
+                        [self sendTouchesToGestureRecognizers: touchSet withEvent: theEvent 
+                                                      inPhase: phase inView: v];
+                        [v touchesBegan: touchSet withEvent: theEvent];
+                        break;
+                     case SNTouchPhaseMoved:
+                        touchSet = [theEvent touchesMatchingPhase: SNTouchPhaseMoved inView: v];
+                        [self sendTouchesToGestureRecognizers: touchSet withEvent: theEvent 
+                                                      inPhase: phase inView: v];
+                        [v touchesMoved: touchSet withEvent: theEvent];
+                        break;
+                     case SNTouchPhaseEnded:
+                        touchSet = [theEvent touchesMatchingPhase: SNTouchPhaseEnded inView: v];
+                        [self sendTouchesToGestureRecognizers: touchSet withEvent: theEvent 
+                                                      inPhase: phase inView: v];
+                        [v touchesEnded: touchSet withEvent: theEvent];
+                        break;
+                     case SNTouchPhaseCancelled:
+                        touchSet = [theEvent touchesMatchingPhase: SNTouchPhaseCancelled inView: v];
+                        [self sendTouchesToGestureRecognizers: touchSet withEvent: theEvent 
+                                                      inPhase: phase inView: v];
+                        [v touchesCancelled: touchSet withEvent: theEvent];
+                        break;
+                     case SNTouchPhaseStationary: // No matching handler for stationary phase
+                        break;
+                  }
+               }
+               else if ([v firstTouch] == [touch identity])
+               {
+                  touchSet = [NSSet setWithObject: touch];
+                  [self sendTouchesToGestureRecognizers: touchSet withEvent: theEvent 
+                                                inPhase: phase inView: v];
+                  switch (phase) 
+                  {
+                     case SNTouchPhaseBegan:
+                        [v touchesBegan: touchSet withEvent: theEvent];
+                        break;
+                     case SNTouchPhaseMoved:
+                        [v touchesMoved: touchSet withEvent: theEvent];
+                        break;
+                     case SNTouchPhaseEnded:
+                        [v touchesEnded: touchSet withEvent: theEvent];
+                        break;
+                     case SNTouchPhaseCancelled:
+                        [v touchesCancelled: touchSet withEvent: theEvent];
+                        break;
+                     case SNTouchPhaseStationary: // No matching handler for stationary phase
+                        break;
+                  }
+               }
+            }
+
+            if (phase == SNTouchPhaseEnded || phase == SNTouchPhaseCancelled) {
+
+               // Decrement touch/mouse counts
+               //[self decrementTouchCount];
+               //[self decrementMouseCount];
+               [v decrementTouchCount];
+               //[v decrementMouseCount];
+
+               // Unset first touch/mouse if necessary
+               //if ([touch identity] == [self firstTouch])
+               //   [self setFirstTouch: 0];
+               if ([touch identity] == [v firstTouch]) {
+                  [v setFirstTouch: 0];
+                  [v setFirstTouchLocationInView: NSZeroPoint];
+               }
+
+               // Reset gesture recognizers when last finger is lifted from view
+               //if ([v touchCount] == 0 && [v gestureRecognizers] != nil) 
+               if ([v touchCount] == 0) 
+               {
+                  //NSEnumerator *gestureEnum = [[v gestureRecognizers] objectEnumerator];
+                  NSEnumerator *gestureEnum;
+                  SNGestureRecognizer *gr;
+                  id currentView = v;
+
+                  do
+                  {
+                     if (![currentView isKindOfClass: [NSView class]])
+                     {
+                        //Stop - we have reached the NSWindow object
+                        break;
+                     }
+
+                     gestureEnum = [[currentView gestureRecognizers] objectEnumerator];
+                     while ((gr = [gestureEnum nextObject]))
+                     {
+                        if ([gr hasBegun])
+                           [gr reset];
+                     }
+                  }
+                  while ([currentView allowsNextResponderToRecognizeGestures] && 
+                         (currentView = [currentView nextResponder]));
+
+               }
+
+               // Remove touch from dictionary
+               /*** Touches now use mouse dictionary so we're consistent with the view associated with both the touch and the mouse generated by the same touch
+                 *  Inconsistency happens when touch handler moves a view to current touch position, making the view associated with subsequent mouse, which is wrong
+               //key = [NSNumber numberWithUnsignedLongLong: ((unsigned long long int)[theEvent sequence] << 32 | 
+               //                                             (unsigned long long int)[touch identity])];
+               key = [NSNumber numberWithUnsignedInteger: [touch identity]];
+               [_touchViewDictionary removeObjectForKey: key];
+               ***/
+            }
+
+         }
+         break;
+      }
+
+      case NSLeftMouseUp: {
+        //v = AUTORELEASE(RETAIN(_lastView));
+        //DESTROY(_lastView);
+        //if (v == nil)
+        //  break;
+
+        //v = [_wv hitTest: [theEvent locationInWindow]];
+        //printf("NSWindow case NSLeftMouseUp\n");
+        //[v mouseUp: theEvent];
+
+        NSView *vi = [self viewForMouseEvent: theEvent];
+        printf("NSWindow case NSLeftMouseUp, view = %s\n", [[vi description] cString]);
+
+
+
+        if ([vi supportsMultiTouch])
+        {
+
+
+
+        BOOL shouldSend = YES;
+
+        // Update first mouse location for view
+        if ([theEvent mouse] == [vi firstMouse]) {
+           [vi setFirstMouseLocationInView: [vi convertPoint: [theEvent locationInWindow] fromView: nil]];
+        }
+
+        // Only send event if user interaction is enabled
+        if (![vi userInteractionEnabled]) {
+           shouldSend = NO;
+        }
+
+        // If multipleTouch is not enabled, ignore all but first mouse
+        if (![vi multipleTouchEnabled] && [vi firstMouse] != [theEvent mouse]) {
+           shouldSend = NO;
+        }
+
+        // If first touched view's exclusiveTouch is set to YES, it is the only view that can receive touches throughout a multi-touch sequence.
+        // If set to NO, then other views can receive touches only if they are also non-exclusive
+        if (([_firstViewTouched exclusiveTouch] && vi != _firstViewTouched) || 
+            (![_firstViewTouched exclusiveTouch] && [vi exclusiveTouch])) {
+           shouldSend = NO;
+        }
+
+        if (shouldSend) {
+           [vi mouseUp: theEvent];
+        }
+
+        //if ([theEvent subtype] == NSMouseEventSubtype) {
+        //   [self decrementMouseCount];
+           [vi decrementMouseCount];
+        //}
+
+        // Unset window and view's first mouse if necessary
+        //if ([theEvent mouse] == [self firstMouse]) {
+        //   [self setFirstMouse: 0];
+        //}
+        if ([theEvent mouse] == [vi firstMouse]) {
+           printf("setting first mouse to 0... view = %s\n", [[vi description] cString]);
+           [vi setFirstMouse: 0];
+           [vi setFirstMouseLocationInView: NSZeroPoint];
+        }
+
+        // Remove mouse from dictionary
+        //NSNumber *key = [NSNumber numberWithUnsignedLongLong: ((unsigned long long int)[theEvent sequence] << 32 | 
+        //                                                       (unsigned long long int)(theEvent->mouse_id))];
+        NSNumber *key = [NSNumber numberWithUnsignedInteger: [theEvent mouse]];
+        [_mouseViewDictionary removeObjectForKey: key];
+
+        if ([_mouseViewDictionary count] == 0) {
+           _firstViewTouched = nil;
+        }
+
+
+
+        }
+        else // view doesn't support multi-touch, run original GNUstep code
+        {
+           v = AUTORELEASE(RETAIN(_lastView));
+           DESTROY(_lastView);
+           if (v == nil)
+             break;
+           [v mouseUp: theEvent];
+        }
+
         _lastPoint = [theEvent locationInWindow];
+
+        /***
+        if ([theEvent endOfSequence])
+           [self cleanMouseViewDictionary];
+         ***/
+
         break;
+      }
 
       case NSOtherMouseDown:
           v = [_wv hitTest: [theEvent locationInWindow]];
@@ -3636,9 +4315,67 @@ resetCursorRectsForView(NSView *theView)
       case NSMouseMoved:
         switch (type)
           {
-            case NSLeftMouseDragged:
-              [_lastView mouseDragged: theEvent];
+            case NSLeftMouseDragged: {
+              //NSView *v = [_wv hitTest: [theEvent locationInWindow]];
+              //if (v == _lastView)
+              //   printf("v == _lastView\n");
+              //using _lastView here b/c the mouse location could be on a different view, but we want
+              //to send event to the dragged view
+
+              //[_lastView mouseDragged: theEvent];
+              //v = [_wv hitTest: [theEvent locationInWindow]];
+              //[v mouseDragged: theEvent];
+
+              NSView *v = [self viewForMouseEvent: theEvent];
+              printf("NSWindow case NSLeftMouseDragged, view = %s\n", [[v description] cString]);
+
+
+              if ([v supportsMultiTouch])
+              {
+
+
+
+
+              BOOL shouldSend = YES;
+
+              // Update first mouse location for view
+              if ([theEvent mouse] == [v firstMouse]) {
+                 [v setFirstMouseLocationInView: [v convertPoint: [theEvent locationInWindow] fromView: nil]];
+              }
+
+              // Only send event if user interaction is enabled
+              if (![v userInteractionEnabled]) {
+                 shouldSend = NO;
+              }
+
+              // If multipleTouch is not enabled, ignore all but first mouse
+              if (![v multipleTouchEnabled] && [v firstMouse] != [theEvent mouse]) {
+                 shouldSend = NO;
+              }
+
+              // If first touched view's exclusiveTouch is set to YES, it is the only view that can receive touches throughout a multi-touch sequence.
+              // If set to NO, then other views can receive touches only if they are also non-exclusive
+              if (([_firstViewTouched exclusiveTouch] && v != _firstViewTouched) || 
+                  (![_firstViewTouched exclusiveTouch] && [v exclusiveTouch])) {
+                 shouldSend = NO;
+              }
+              
+              if (shouldSend) {
+                 [v mouseDragged: theEvent];
+              }
+
+
+
+
+
+              }
+              else // view doesn't support multi-touch, run original GNUstep code
+              {
+                 [_lastView mouseDragged: theEvent];
+              }
+
               break;
+            }
             case NSOtherMouseDragged:
               [_lastView otherMouseDragged: theEvent];
               break;
@@ -3646,8 +4383,10 @@ resetCursorRectsForView(NSView *theView)
               [_lastView rightMouseDragged: theEvent];
               break;
             default:
+              //printf("NSMouseMoved\n");
               if (_f.accepts_mouse_moved)
                 {
+                  //printf("_f.accepts_mouse_moved\n");
                   /*
                    * If the window is set to accept mouse movements, we need to
                    * forward the mouse movement to the correct view.
@@ -3730,6 +4469,7 @@ resetCursorRectsForView(NSView *theView)
 
       case NSAppKitDefined:
         {
+          //printf("NSWindow case NSAppKitDefined\n");
           id dragInfo;
           int action;
           NSEvent *e;
@@ -4075,6 +4815,11 @@ resetCursorRectsForView(NSView *theView)
         break;
 
       case NSPeriodic:
+        //printf("NSWindow case NSPeriodic\n");
+        if ([theEvent view])
+           [[theEvent view] periodicEvent: theEvent];
+        //[_lastView mouseUp: theEvent]; // FIXME: experimental only
+        break;
       case NSSystemDefined:
       case NSApplicationDefined:
         break;
@@ -4292,16 +5037,20 @@ current key view.<br />
             source: (id)sourceObject
          slideBack: (BOOL)slideFlag
 {
-  id dragView = [GSServerForWindow(self) dragInfo];
+  //printf("NSWindow dragImage, event type = %i\n", [event type]);
+  if ([event type] == NSLeftMouseDown)
+  {
+     _dragView = [GSServerForWindow(self) dragInfo];
+     [NSApp preventWindowOrdering];
+  }
 
-  [NSApp preventWindowOrdering];
-  [dragView dragImage: anImage
-                   at: [self convertBaseToScreen: baseLocation]
-               offset: initialOffset
-                event: event
-           pasteboard: pboard
-               source: sourceObject
-            slideBack: slideFlag];
+  [_dragView dragImage: anImage
+                    at: [self convertBaseToScreen: baseLocation]
+                offset: initialOffset
+                 event: event
+            pasteboard: pboard
+                source: sourceObject
+             slideBack: slideFlag];
 }
 
 - (void) registerForDraggedTypes: (NSArray*)newTypes

@@ -54,6 +54,13 @@
 - (void) drawDividerInRect: (NSRect)aRect;
 - (CGFloat) dividerThickness;
 
+//
+// Handling touch events
+//
+- (void) touchesBeganWithEvent: (NSEvent *) theEvent;
+- (void) touchesMovedWithEvent: (NSEvent *) theEvent;
+- (void) touchesEndedWithEvent: (NSEvent *) theEvent;
+
 /* Vertical splitview has a vertical split bar */ 
 - (void) setVertical: (BOOL)flag;
 - (BOOL) isVertical;

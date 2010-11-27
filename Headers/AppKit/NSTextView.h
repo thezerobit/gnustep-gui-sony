@@ -169,6 +169,16 @@ therefore be stored in the NSLayoutManager to avoid problems.
   NSSize _minSize;
   NSSize _maxSize;
 
+  // Instance variables for maintaining mouseDown states
+  BOOL _canDrag;
+  BOOL _gettingPeriodic;
+  NSSelectionAffinity _affinity;
+  NSSelectionGranularity _granularity;
+  NSRange _chosenRange, _proposedRange;
+  unsigned _startIndex;
+  NSEvent *_lastEvent; /* Last non-periodic event. */
+  BOOL _dragStarted;
+  
   
   /* The following is the object used when posting notifications.  
      It is usually `self' - but in the case of multiple textviews 

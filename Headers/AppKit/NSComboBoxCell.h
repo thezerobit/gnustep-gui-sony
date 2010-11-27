@@ -51,6 +51,11 @@
    int                  _selectedItem;
    NSRect               _lastValidFrame;
    NSRange		_prevSelectedRange;
+   BOOL			_shouldOpenPopUp;
+   NSTimeInterval	_popUpCloseTime; //last popup close time
+
+   // Instance variables for maintaining states in trackMouse
+   BOOL 		_mouseBeganInButtonCell;
   
 @private
    id		        _popup;

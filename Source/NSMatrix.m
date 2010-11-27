@@ -344,6 +344,7 @@ static SEL getSel;
     return nil;
 
   [self setCellClass: classId];
+  _supportsMultiTouch = NO;
   return [self _privateFrame: frameRect
 		        mode: aMode
 		numberOfRows: rowsHigh
@@ -366,6 +367,7 @@ static SEL getSel;
     return nil;
 
   [self setPrototype: aCell];
+  _supportsMultiTouch = NO;
   return [self _privateFrame: frameRect
 		        mode: aMode
 		numberOfRows: rowsHigh

@@ -76,7 +76,7 @@ static const BOOL ForceBrowser = NO;
    NSBrowser *_browser;
    GSComboBoxTableView *_tableView;
    NSComboBoxCell *_cell;
-   BOOL _stopped;
+   //BOOL _stopped;
 }
 
 + (GSComboWindow *) defaultPopUp;
@@ -85,7 +85,7 @@ static const BOOL ForceBrowser = NO;
 - (void) positionWithComboBoxCell:(NSComboBoxCell *)comboBoxCell;
 - (void) popUpForComboBoxCell: (NSComboBoxCell *)comboBoxCell;
 - (void) runModalPopUpWithComboBoxCell:(NSComboBoxCell *)comboBoxCell;
-- (void) runLoopWithComboBoxCell:(NSComboBoxCell *)comboBoxCell;
+//- (void) runLoopWithComboBoxCell:(NSComboBoxCell *)comboBoxCell;
 - (void) onWindowEdited: (NSNotification *)notification;
 - (void) clickItem: (id)sender;
 - (void) reloadData;
@@ -94,22 +94,27 @@ static const BOOL ForceBrowser = NO;
 - (void) scrollItemAtIndexToVisible: (int)index;
 - (void) selectItemAtIndex: (int)index;
 - (void) deselectItemAtIndex: (int)index;
+- (void) keyDown:(NSEvent *)theEvent;
 - (void) moveUpSelection;
 - (void) moveDownSelection;
 - (void) validateSelection;
+- (void) cleanUpAndClose;
 
 @end
 
 @interface NSComboBoxCell (GNUstepPrivate)
 - (NSString *) _stringValueAtIndex: (int)index;
+// The following method appears to be unused?
 - (void) _performClickWithFrame: (NSRect)cellFrame inView: (NSView *)controlView;
 - (void) _didClickWithinButton: (id)sender;
+- (void) _dismissPopUp;
 - (BOOL) _isWantedEvent: (NSEvent *)event;
 - (GSComboWindow *) _popUp;
 - (NSRect) _textCellFrame;
 - (void) _setSelectedItem: (int)index;
 - (void) _loadButtonCell;
 - (void) _selectCompleted;
+- (void) _setPopUpCloseTime: (NSTimeInterval)aTime;
 @end
 
 // ---
@@ -380,8 +385,9 @@ static GSComboWindow *gsWindow = nil;
   [self enableKeyEquivalentForDefaultButtonCell];
   [self runModalPopUpWithComboBoxCell: _cell];
 
-  _cell = nil;
-  [self deselectItemAtIndex: 0];
+  // The following code is moved to cleanUpAndClose
+  //_cell = nil;
+  //[self deselectItemAtIndex: 0];
 }
 
 - (void) runModalPopUpWithComboBoxCell: (NSComboBoxCell *)comboBoxCell
@@ -396,6 +402,11 @@ static GSComboWindow *gsWindow = nil;
     name: NSWindowWillMoveNotification object: onWindow];
   [nc addObserver: self selector: @selector(onWindowEdited:) 
     name: NSWindowWillMiniaturizeNotification object: onWindow];
+
+  // Added so we can close popup window when user clicks somewhere in the host window
+  // Needed for loop-free event handling
+  [nc addObserver: self selector: @selector(onWindowEdited:) 
+    name: NSWindowDidBecomeKeyNotification object: onWindow];
     
   // FIX ME: The notification below doesn't exist currently
   // [nc addObserver: self selector: @selector(onWindowEdited:) 
@@ -412,16 +423,18 @@ static GSComboWindow *gsWindow = nil;
   // End of the code to remove
   
   [self orderFront: self];
+  [self makeKeyWindow]; // For receiving key input
   [self makeFirstResponder: _tableView];
-  [self runLoopWithComboBoxCell: comboBoxCell];
+  //[self runLoopWithComboBoxCell: comboBoxCell];
   
-  [nc removeObserver: self name: nil object: onWindow];
-  
-  [self close];
-
-  [onWindow makeFirstResponder: [_cell controlView]];
+  // The following code is moved to cleanUpAndClose
+  //[nc removeObserver: self name: nil object: onWindow];
+  //[self close];
+  //[onWindow makeFirstResponder: [_cell controlView]];
 }
 
+/***** REMOVE TRACKING LOOP COMPLETELY *****/
+/*****
 - (void) runLoopWithComboBoxCell: (NSComboBoxCell *)comboBoxCell
 {
   NSEvent *event;
@@ -431,6 +444,7 @@ static GSComboWindow *gsWindow = nil;
 
   while (YES)
     {
+      printf("NSComboBoxCell runLoopWithComboBoxCell calling nextEventMatchingMask\n");
       event = [NSApp nextEventMatchingMask: NSAnyEventMask
 		                 untilDate: limit
 		                    inMode: NSDefaultRunLoopMode
@@ -444,6 +458,7 @@ static GSComboWindow *gsWindow = nil;
 	    }
 	  else
 	    {
+              printf("NSComboBoxCell delivering event...\n");
 	      [NSApp sendEvent: event];
 	    }
         }
@@ -469,25 +484,56 @@ static GSComboWindow *gsWindow = nil;
 	      [NSApp sendEvent: event];
 	    }
 	}
+      else if ([event type] == NSTouched)
+        {
+          [NSApp sendEvent: event];
+          if ([event touchCount] > 1) 
+            { 
+              //break; //don't break, keep the box open and keep tracking?
+            }
+        }
       else
         {
 	  [NSApp sendEvent: event];
 	}
       
-      if (_stopped)
-        break;      
+      if (_stopped) {
+        printf("NSComboBoxCell runLoopWithComboBoxCell breaking...\n");
+
+        // Peek next event and deliver last touch (phaseEnded) if necessary
+        // This shouldn't be necessary when Win server can generate real touch events where mouseDown arrives after single-touch event
+        event = [NSApp nextEventMatchingMask: NSAnyEventMask
+		                   untilDate: limit
+		                      inMode: NSDefaultRunLoopMode
+		                     dequeue: NO];
+        if ([event type] == NSTouched && [event touchCount] == 1 && [[[event allTouches] anyObject] phase] == NSTouchPhaseEnded) {
+           event = [NSApp nextEventMatchingMask: NSAnyEventMask
+		                      untilDate: limit
+		                         inMode: NSDefaultRunLoopMode
+		                        dequeue: YES];
+           [NSApp sendEvent: event];
+        }
+        // End of last touch event delivery code
+
+
+
+        break;
+      }      
     }
     
   _stopped = NO;
     
   RELEASE(pool);
 }
+*****/
+/***** END OF LOOP REMOVAL *****/
 
 // onWindow notifications
 
 - (void) onWindowEdited: (NSNotification *)notification
 {
-  _stopped = YES;
+  //_stopped = YES;
+  [self cleanUpAndClose];
 }
 
 - (void) reloadData
@@ -581,6 +627,7 @@ static GSComboWindow *gsWindow = nil;
 // Target/Action method
 - (void) clickItem: (id)sender
 {  
+  //printf("NSComboBoxCell: clickItem()\n");
   if (_cell == nil)
     return;
   
@@ -644,6 +691,31 @@ static GSComboWindow *gsWindow = nil;
   [nc postNotificationName: NSComboBoxSelectionDidChangeNotification
 	            object: [_cell controlView]
 	          userInfo: nil];
+}
+
+// Override keyDown to handle selection
+- (void) keyDown:(NSEvent *)theEvent
+{
+   unichar key;
+   key = [[theEvent characters] characterAtIndex: 0];
+   if (key == NSUpArrowFunctionKey)
+   {
+      [self moveUpSelection]; 
+   }
+   else if (key == NSDownArrowFunctionKey)
+   {
+      [self moveDownSelection];
+   }
+   else if (key == NSNewlineCharacter 
+         || key == NSEnterCharacter 
+	 || key == NSCarriageReturnCharacter)
+   {
+      [self validateSelection];
+   }
+   else
+   {
+      [super keyDown: theEvent];
+   }
 }
 
 // Key actions methods
@@ -728,8 +800,32 @@ static GSComboWindow *gsWindow = nil;
       
       [cv sendAction: [_cell action] to: [_cell target]];
       
-      _stopped = YES;
+      //printf("validateSelection\n");
+      //_stopped = YES;
+      [self cleanUpAndClose];
     }
+}
+
+- (void) cleanUpAndClose
+{
+  NSWindow	*onWindow;
+  onWindow = [[_cell controlView] window];
+
+  // Copied from [GSComboWindow runModalPopUpWithComboBoxCell]
+  [nc removeObserver: self name: nil object: onWindow];
+  [self close];
+  [onWindow makeFirstResponder: [_cell controlView]];
+
+  // Copied from [GSComboWindow popUpForComboBoxCell]
+  //_cell = nil;
+  [self deselectItemAtIndex: 0];
+
+  // Copied from [NSComboBoxCell _didClickWithinButton]
+  [_cell _dismissPopUp];
+
+  // set last popup close time before nullifying _cell
+  [_cell _setPopUpCloseTime: [NSDate timeIntervalSinceReferenceDate]];
+  _cell = nil;
 }
 
 @end
@@ -1582,71 +1678,149 @@ static inline NSRect buttonCellFrameFromRect(NSRect cellRect)
   NSRect textRect = textCellFrameFromRect(cellFrame);
   BOOL result = NO;
 
-  // FIXME: May be that should be set by NSActionCell
-  if (_control_view != controlView)
-    _control_view = controlView;
+  printf("NSComboBoxCell trackMouse\n");
+
+  if ([theEvent type] == NSLeftMouseDown)
+  {
+     // FIXME: May be that should be set by NSActionCell
+     if (_control_view != controlView)
+       _control_view = controlView;
   
-  // Used by GSComboWindow to appear in the right position
-  _lastValidFrame = cellFrame;
-  point = [controlView convertPoint: [theEvent locationInWindow]
-			   fromView: nil];
+     // Used by GSComboWindow to appear in the right position
+     _lastValidFrame = cellFrame;
+  }
+
+  //point = [controlView convertPoint: [theEvent locationInWindow]
+  //			 fromView: nil];
+  point = [controlView firstMouseLocationInView];
 
   if (NSMouseInRect(point, textRect, isFlipped))
     {
-      return NO;
+      if ([theEvent type] == NSLeftMouseDown)
+         _mouseBeganInButtonCell = NO;
+
+      [_buttonCell setHighlighted: NO];
+      [controlView setNeedsDisplayInRect: cellFrame];
+      return _mouseBeganInButtonCell;
     }
   else if (NSMouseInRect(point, buttonRect, isFlipped))
     {
-      NSEvent *e = theEvent;
+      //NSEvent *e = theEvent;
       BOOL isMouseUp = NO;  
-      unsigned int eventMask = NSLeftMouseDownMask | NSLeftMouseUpMask
-       | NSMouseMovedMask | NSLeftMouseDraggedMask | NSOtherMouseDraggedMask
-       | NSRightMouseDraggedMask;
-      NSPoint location;
+      //unsigned int eventMask = NSLeftMouseDownMask | NSLeftMouseUpMask
+      // | NSMouseMovedMask | NSLeftMouseDraggedMask | NSOtherMouseDraggedMask
+      // | NSRightMouseDraggedMask | NSTouchedMask
+      // | NSRightMouseDownMask | NSRightMouseUpMask; //<p>FIXME</p> right mouse down/up added temporarily for testing purpose only
+
+      //NSPoint location;
+
+      if ([theEvent type] == NSLeftMouseDown) {
+         // NSWindowDidBecomeKeyNotification is sent before mouseDown event.
+         // We use the time difference to determine if this click has caused the popup to close.
+         // If popup was closed a very short time ago, it must have been caused by user clicking
+         // the button again, which triggered the notification to close popup. In that case, we 
+         // won't open the popup again.
+         // This is probably an ugly hack. The best place to set the flag would be
+         // GSComboWindow's onWindowEdited method, but since we can't get event info there, we
+         // set the flag here using the time difference trick.
+         // FIXME hardcoded time value OK?
+         if ([NSDate timeIntervalSinceReferenceDate] - _popUpCloseTime < 0.07)
+            _shouldOpenPopUp = NO;
+         else
+            _shouldOpenPopUp = YES;
+
+         _mouseBeganInButtonCell = YES;
+      }
       
-      while (isMouseUp == NO) // Loop until mouse goes up
-        {
-          location = [controlView convertPoint: [e locationInWindow] fromView: nil];
+      if (_mouseBeganInButtonCell)
+      {
+      //while (isMouseUp == NO) // Loop until mouse goes up
+      //  {
+          //location = [controlView convertPoint: [e locationInWindow] fromView: nil];
              
 	  // Ask the cell to track the mouse only when the mouse is within the cell
-          if (NSMouseInRect(location, buttonRect, isFlipped))
-	    {
+          //if (NSMouseInRect(location, buttonRect, isFlipped))
+	  //  {
+              //printf("ask cell to track the mouse...\n");
 	      [_buttonCell setHighlighted: YES];
 	      [controlView setNeedsDisplayInRect: cellFrame];
 		
-	      result = [_buttonCell trackMouse: e
+	      result = [_buttonCell trackMouse: theEvent
 		                        inRect: buttonRect
 		                        ofView: controlView
 		                  untilMouseUp: [NSButtonCell prefersTrackingUntilMouseUp]];
               isMouseUp = result;
+              //printf("isMouseUp = %i\n", isMouseUp);
 
-	      [_buttonCell setHighlighted: NO];
-	      [controlView setNeedsDisplayInRect: cellFrame];
-            }
+              if (isMouseUp)
+              {
+	         [_buttonCell setHighlighted: NO];
+	         [controlView setNeedsDisplayInRect: cellFrame];
+              }
+          //  }
 		
+          /***
           if (isMouseUp == NO)
 	    {
+              //printf("NSComboBoxCell trackMouse() calling nextEventMatchingMask\n");
 	      e = [NSApp nextEventMatchingMask: eventMask
 			             untilDate: [NSDate distantFuture]
 		  		        inMode: NSEventTrackingRunLoopMode
 				       dequeue: YES];
+              
+              
+              while ([e type] == NSTouched) {
+                 // We trapped a touch event, re-deliver it
+                 [NSApp sendEvent: e];
+                 if ([e touchCount] > 1) { // We have a multi-touch event, cancel tracking
+                    printf("NSComboBoxCell loop ending... \n");
+                    return YES;
+                 }
+	         e = [NSApp nextEventMatchingMask: eventMask
+			                untilDate: [NSDate distantFuture]
+		  		           inMode: NSEventTrackingRunLoopMode
+				          dequeue: YES];
+              }
+              
             
 	      if ([e type] == NSLeftMouseUp)
 	        isMouseUp = YES;
 	    }
-	}
-	
+            ***/
+	//}
+      }
+ 
+
+
+      return _mouseBeganInButtonCell;	
+
+      /**
       if (flag)
         {
 	  return YES;
 	}
       else
-        {	   
+        {	  
           return NO;
 	}
+      **/
+    }
+  else // Point not in text or button
+    {
+        [_buttonCell setHighlighted: NO];
+        [controlView setNeedsDisplayInRect: cellFrame];
     }
 
-  return NO; // Pathological case, normally never happens
+  //return NO; // Pathological case, normally never happens
+
+  if (flag)
+    {
+       return _mouseBeganInButtonCell;
+    }
+  else
+    {	  
+       return NO;
+    }
 }
 
 - (void) resetCursorRect: (NSRect)cellFrame inView: (NSView *)controlView
@@ -1877,6 +2051,7 @@ static inline NSRect buttonCellFrameFromRect(NSRect cellRect)
   return nil;
 }
 
+// This method appears to be unused?
 - (void) _performClickWithFrame: (NSRect)cellFrame 
                          inView: (NSView *)controlView
 {
@@ -1908,12 +2083,30 @@ static inline NSRect buttonCellFrameFromRect(NSRect cellRect)
   if ((_cell.is_disabled) || (controlView == nil))
     return;
 
-  [nc postNotificationName: NSComboBoxWillPopUpNotification 
-                    object: controlView 
-		  userInfo: nil];
+  // Don't open popup if it was already open when button is clicked
+  if (_shouldOpenPopUp)
+  {
+     [nc postNotificationName: NSComboBoxWillPopUpNotification 
+                       object: controlView
+		     userInfo: nil];
   
-  _popup = [self _popUp];
-  [_popup popUpForComboBoxCell: self];
+     _popup = [self _popUp];
+     [_popup popUpForComboBoxCell: self];
+
+     // The following code is moved to _dismissPopup
+     //_popup = nil;
+
+     //[nc postNotificationName: NSComboBoxWillDismissNotification
+     //                  object: controlView
+     //                userInfo: nil];
+  }
+}
+
+- (void) _dismissPopUp
+{
+  NSView *controlView = [self controlView];
+
+  // Copied from [NSComboBoxCell _didClickWithinButton]
   _popup = nil;
 
   [nc postNotificationName: NSComboBoxWillDismissNotification
@@ -1998,6 +2191,11 @@ static inline NSRect buttonCellFrameFromRect(NSRect cellRect)
       [self _setSelectedItem: index];
     }
   // Otherwise keep old selection
+}
+
+- (void) _setPopUpCloseTime: (NSTimeInterval)aTime
+{
+   _popUpCloseTime = aTime;
 }
 
 @end

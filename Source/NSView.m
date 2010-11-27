@@ -542,6 +542,18 @@ GSSetDragTypes(NSView* obj, NSArray *types)
   _tracking_rects = [NSMutableArray new];
   _cursor_rects = [NSMutableArray new];
 
+  // Default values for touch-related
+  _supportsMultiTouch = NO;
+  _multipleTouchEnabled = NO;
+  _exclusiveTouch = NO;
+  _userInteractionEnabled = YES;
+
+  // Deafult values for gesture-related
+  _allowsNextResponderToRecognizeGestures = NO;
+
+  // for demo purpose only..
+  _zoomMode = NO;
+
   // Some values are already set by initialisation
   //_super_view = nil;
   //_window = nil;
@@ -681,6 +693,10 @@ GSSetDragTypes(NSView* obj, NSArray *types)
     }
   TEST_RELEASE(_cursor_rects);
   TEST_RELEASE(_tracking_rects);
+
+  if (_gesture_recognizers != nil)
+     RELEASE(_gesture_recognizers);
+
   [self unregisterDraggedTypes];
   [self releaseGState];
 
@@ -3648,6 +3664,230 @@ static NSView* findByTag(NSView *view, int aTag, unsigned *level)
 }
 
 /*
+ * Settign mouse/touch count
+ */
+- (void) incrementMouseCount
+{
+   _mouseCount++;
+}
+
+- (void) decrementMouseCount
+{
+   _mouseCount--;
+}
+
+- (void) incrementTouchCount
+{
+   _touchCount++;
+}
+
+- (void) decrementTouchCount
+{
+   _touchCount--;
+}
+
+- (short) mouseCount
+{
+   return _mouseCount;
+}
+
+- (short) touchCount
+{
+   return _touchCount;
+}
+
+/*
+ * First mouse/touch
+ */
+- (void) setFirstMouse: (NSUInteger)mouse_id
+{
+   _first_mouse_id = mouse_id;
+}
+
+- (NSUInteger) firstMouse
+{
+   return _first_mouse_id;
+}
+
+- (void) setFirstTouch: (NSUInteger)touch_id
+{
+   _first_touch_id = touch_id;
+}
+
+- (NSUInteger) firstTouch
+{
+   return _first_touch_id;
+}
+
+- (void) setFirstMouseLocationInView: (NSPoint)location
+{
+   _first_mouse_location_in_view = location;
+}
+
+- (NSPoint) firstMouseLocationInView
+{
+   return _first_mouse_location_in_view;
+}
+
+- (void) setFirstTouchLocationInView: (NSPoint)location
+{
+   _first_touch_location_in_view = location;
+}
+
+- (NSPoint) firstTouchLocationInView
+{
+   return _first_touch_location_in_view;
+}
+
+/*
+ * Touch related
+ */
+- (BOOL) userInteractionEnabled
+{
+   return _userInteractionEnabled;
+}
+
+- (void) setUserInteractionEnabled: (BOOL)value
+{
+   _userInteractionEnabled = value;
+}
+
+- (BOOL) supportsMultiTouch
+{
+   return _supportsMultiTouch;
+}
+
+- (void) setSupportsMultiTouch: (BOOL)value
+{
+   _supportsMultiTouch = value;
+}
+
+- (BOOL) multipleTouchEnabled
+{
+   return _multipleTouchEnabled;
+}
+
+- (void) setMultipleTouchEnabled: (BOOL)value
+{
+   _multipleTouchEnabled = value;
+}
+
+- (BOOL) exclusiveTouch
+{
+   return _exclusiveTouch;
+}
+
+- (void) setExclusiveTouch: (BOOL)value
+{
+   _exclusiveTouch = value;
+}
+
+/*
+ * Managing gesture recognizers
+ */
+- (void) addGestureRecognizer: (SNGestureRecognizer *)gestureRecognizer
+{
+   if (gestureRecognizer == nil)
+   {
+      [NSException raise: NSInvalidArgumentException
+		  format: @"Adding a nil gesture recognizer"];
+   }
+
+   RETAIN(gestureRecognizer);
+
+   if (_gesture_recognizers == nil)
+      _gesture_recognizers = [[NSMutableArray alloc] initWithCapacity: 1];
+
+   [gestureRecognizer setView: self];
+   [_gesture_recognizers addObject: gestureRecognizer];
+
+   RELEASE(gestureRecognizer);
+}
+
+- (void) removeGestureRecognizer: (SNGestureRecognizer *)gestureRecognizer
+{
+   if (gestureRecognizer == nil)
+   {
+      [NSException raise: NSInvalidArgumentException
+		  format: @"Removing a nil gesture recognizer"];
+   }
+
+   [gestureRecognizer setView: nil];
+
+   if (_gesture_recognizers == nil)
+   {
+      RELEASE(gestureRecognizer);
+      return;
+   }
+
+   [_gesture_recognizers removeObjectIdenticalTo: gestureRecognizer];
+}
+
+- (NSArray*) gestureRecognizers
+{
+  /*
+   * Return a mutable copy 'cos we know that a mutable copy of an array or
+   * a mutable array does a shallow copy - which is what we want to give
+   * away - we don't want people to mess with our actual gesture recognizer array.
+   */
+  return AUTORELEASE([_gesture_recognizers mutableCopyWithZone: NSDefaultMallocZone()]);
+}
+
+- (BOOL) allowsNextResponderToRecognizeGestures
+{
+   return _allowsNextResponderToRecognizeGestures;
+}
+
+- (void) setAllowsNextResponderToRecognizeGestures: (BOOL)aValue
+{
+   _allowsNextResponderToRecognizeGestures = aValue;
+}
+
+///// for demo purpose only..
+- (BOOL) zoomMode
+{
+   return _zoomMode;
+}
+
+- (void) setZoomMode: (BOOL)aValue
+{
+   _zoomMode = aValue;
+}
+///// end of demo purpose code
+
+- (void) setFrameRotationOnPoint: (float)angle andPoint: (NSPoint) point
+{
+  float oldAngle = [self frameRotation];
+
+  if (oldAngle != angle)
+    {
+      /* no frame matrix, create one since it is needed for rotation */
+      if (_frameMatrix == nil)
+        {
+          // Map from superview to frame
+          _frameMatrix = [NSAffineTransform new];
+        }
+
+      if (_coordinates_valid)
+        {
+          (*invalidateImp)(self, invalidateSel);
+        }
+
+      [_frameMatrix rotateByRadiansOnPoint: (3.14 * (angle-oldAngle)) / 180 andPoint: point];
+
+      _is_rotated_from_base = _is_rotated_or_scaled_from_base = YES;
+      [self _updateBoundsMatrix];
+      [self resetCursorRects];
+      if (_post_frame_changes)
+        {
+          [nc postNotificationName: NSViewFrameDidChangeNotification
+              object: self];
+        }
+    }
+}
+
+
+/*
  * Dragging
  */
 - (BOOL) dragFile: (NSString*)filename
@@ -3685,6 +3925,7 @@ static NSView* findByTag(NSView *view, int aTag, unsigned *level)
 	    source: (id)sourceObject
 	 slideBack: (BOOL)slideFlag
 {
+  //printf("NSView dragImage\n");
   [_window dragImage: anImage
 	   at: [self convertPoint: viewLocation toView: nil]
 	   offset: initialOffset

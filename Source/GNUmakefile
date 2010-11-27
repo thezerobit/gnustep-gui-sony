@@ -231,7 +231,17 @@ GSModelLoaderFactory.m \
 GSGormLoader.m \
 GSGModelLoader.m \
 GSNibLoader.m \
-NSManagedObjectContext.m
+NSManagedObjectContext.m \
+SNTouch.m \
+SNGestureRecognizer.m \
+SNTapGestureRecognizer.m \
+SNLongPressGestureRecognizer.m \
+SNSwipeGestureRecognizer.m \
+SNPanGestureRecognizer.m \
+SNPinchGestureRecognizer.m \
+SNRotationGestureRecognizer.m \
+SNCheckmarkGestureRecognizer.m \
+SNLassoGestureRecognizer.m
 
 # Turn off NSMenuItem warning that NSMenuItem conforms to <NSObject>,
 # but does not implement <NSObject>'s methods itself (it inherits
@@ -392,7 +402,17 @@ NSNib.h \
 NSSpellProtocol.h \
 NSUserInterfaceValidation.h \
 DPSOperators.h \
-PSOperators.h 
+PSOperators.h \
+SNTouch.h \
+SNGestureRecognizer.h \
+SNTapGestureRecognizer.h \
+SNLongPressGestureRecognizer.h \
+SNSwipeGestureRecognizer.h \
+SNPanGestureRecognizer.h \
+SNPinchGestureRecognizer.h \
+SNRotationGestureRecognizer.h \
+SNCheckmarkGestureRecognizer.h \
+SNLassoGestureRecognizer.h
 
 GUI_HEADERS = \
 GSVersion.h \

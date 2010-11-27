@@ -388,6 +388,24 @@ static NSNotificationCenter *nc = nil;
 
 }
 
+//
+// Handling touch events... for testing purpose
+//
+- (void) touchesBeganWithEvent: (NSEvent *) theEvent
+{
+   printf("NSSplitView: touchesBeganWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
+- (void) touchesMovedWithEvent: (NSEvent *) theEvent
+{
+   printf("NSSplitView: touchesMovedWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
+- (void) touchesEndedWithEvent: (NSEvent *) theEvent
+{
+   printf("NSSplitView: touchesEndedWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
 /**
  * In -mouseDown we intercept the mouse event to handle the
  * splitview divider move. Moving the divider will do a live
@@ -409,7 +427,9 @@ static NSNotificationCenter *nc = nil;
   float divVertical, divHorizontal;
   NSDate *farAway = [NSDate distantFuture];
   NSDate *longTimeAgo = [NSDate distantPast];
-  unsigned int eventMask = NSLeftMouseUpMask | NSLeftMouseDraggedMask;
+  unsigned int eventMask = NSLeftMouseUpMask | NSLeftMouseDraggedMask | SNTouchedMask
+                           | NSRightMouseDownMask | NSRightMouseUpMask | NSRightMouseDraggedMask; //<p>FIXME</p> right mouse down/up/dragged added
+                                                                                                 // temporarily for testing purpose only
   /* YES if delegate implements splitView:constrainSplitPosition:ofSubviewAt:*/
   BOOL delegateConstrains = NO;
   SEL constrainSel = @selector(splitView:constrainSplitPosition:ofSubviewAt:);
@@ -418,6 +438,7 @@ static NSNotificationCenter *nc = nil;
   BOOL liveResize = ![[NSUserDefaults standardUserDefaults] boolForKey: @"GSUseGhostResize"];
   NSRect oldRect; //only one can be dragged at a time
   BOOL lit = NO;
+  BOOL gotMultiTouch = NO;
 
   /*  if there are less the two subviews, there is nothing to do */
   if (count < 2)
@@ -589,10 +610,27 @@ static NSNotificationCenter *nc = nil;
 
   r.size.width = divHorizontal;
   r.size.height = divVertical;
+  //printf("NSSplitView calling nextEventMatchingMask #1\n");
   e = [app nextEventMatchingMask: eventMask
                        untilDate: farAway
                           inMode: NSEventTrackingRunLoopMode
                          dequeue: YES];
+
+  // Trap any touch events here
+  while ([e type] == SNTouched) {
+     // We trapped a touch event, re-deliver it
+     [app sendEvent: e];
+     if ([e touchCount] > 1) { // Exit without entering track loop
+        printf("NSSplitView exits mouseDown() without tracking\n");
+        gotMultiTouch = YES;
+        break;
+     }
+     e = [app nextEventMatchingMask: eventMask
+                          untilDate: farAway
+                             inMode: NSEventTrackingRunLoopMode
+                            dequeue: YES];
+  }
+  
 
   if (delegateConstrains)
     {
@@ -606,7 +644,7 @@ static NSNotificationCenter *nc = nil;
     }
 
   // user is moving the knob loop until left mouse up
-  while ([e type] != NSLeftMouseUp)
+  while (!gotMultiTouch && [e type] != NSLeftMouseUp)
     {
       if (liveResize)
         {
@@ -665,17 +703,63 @@ static NSNotificationCenter *nc = nil;
 
       {
         NSEvent *ee;
+        NSEvent *eee;
 
+        //printf("NSSplitView calling nextEventMatchingMask #2\n");
         e = [app nextEventMatchingMask: eventMask
                   untilDate: farAway
                   inMode: NSEventTrackingRunLoopMode
                   dequeue: YES];
 
+        // Trap any touch events here
+        while ([e type] == SNTouched) {
+           // We trapped a touch event, re-deliver it
+           [app sendEvent: e];
+           if ([e touchCount] > 1) { // Cancel tracking
+              gotMultiTouch = YES;
+              break;
+           }
+           e = [app nextEventMatchingMask: eventMask
+                     untilDate: farAway
+                     inMode: NSEventTrackingRunLoopMode
+                     dequeue: YES];
+        }
+        if (gotMultiTouch) {
+           printf("NSSplitView cancels tracking...\n");
+           break; // break from main loop
+        }
+
+        //printf("NSSplitView calling nextEventMatchingMask #3\n");
         if ((ee = [app nextEventMatchingMask: NSLeftMouseUpMask
                        untilDate: longTimeAgo
                        inMode: NSEventTrackingRunLoopMode
                        dequeue: YES]) != nil)
           {
+            // We enter here only when mouse is dragged quickly and then released which means we weren't fast enough to 
+            // process the drags that came before the release, so we disgard those drags
+            
+            // Trap any touch events here and re-deliver them
+            do {
+               eee = [app nextEventMatchingMask: (SNTouchedMask 
+                                                  | NSRightMouseDownMask | NSRightMouseUpMask | NSRightMouseDraggedMask)
+                                                  //<p>FIXME</p> right mouse down/up/dragged added temporarily for testing purpose only
+                          untilDate: longTimeAgo
+                          inMode: NSEventTrackingRunLoopMode
+                          dequeue: YES];
+               if (!eee)
+                  break;
+
+               [app sendEvent: eee];
+               if ([eee touchCount] > 1) { // Should cancel tracking, although unlikely to get here
+                  gotMultiTouch = YES;
+                  break;
+               }
+            } while (eee);
+            
+            //printf("NSSplitView discarding events...\n");
+            //**************************************
+            // BUG!!! Sometimes last mouseDragged events have the same timestamp as mouseUp, causing this function to fail to remove them!
+            //**************************************
             [app discardEventsMatchingMask:NSLeftMouseDraggedMask
                  beforeEvent:ee];
             e = ee;
@@ -685,11 +769,29 @@ static NSNotificationCenter *nc = nil;
             ee = e;
             do
               {
+                // If this loop runs more than once it means there are more drag events piled up than we can process
+                // So we only pick the last one at this point and process it
                 e = ee;
+                //printf("NSSplitView calling nextEventMatchingMask #4\n");
                 ee = [app nextEventMatchingMask: NSLeftMouseDraggedMask
                           untilDate: longTimeAgo
                           inMode: NSEventTrackingRunLoopMode
                           dequeue: YES];
+
+                // Trap a touch event and re-deliver it
+                eee = [app nextEventMatchingMask: (SNTouchedMask 
+                                                   | NSRightMouseDownMask | NSRightMouseUpMask | NSRightMouseDraggedMask)
+                                                   //<p>FIXME</p> right mouse down/up/dragged added temporarily for testing purpose only
+                          untilDate: longTimeAgo
+                          inMode: NSEventTrackingRunLoopMode
+                          dequeue: YES];
+                if (eee) {
+                   [app sendEvent: eee];
+                   if ([eee touchCount] > 1) {
+                      gotMultiTouch = YES; // Should cancel tracking
+                      break;
+                   }
+                }
               }
             while (ee != nil);
           }

@@ -1755,6 +1755,7 @@ static BOOL menuBarVisible = YES;
     {
       NSRect	frame = [_aWindow frame];
 
+      //printf("NSMenu calling NSWindow mouseLocationOutsideOfEventStream\n"); //not printed...
       location = [_aWindow mouseLocationOutsideOfEventStream];
       location = [_aWindow convertBaseToScreen: location];
       location.x -= frame.size.width/2;

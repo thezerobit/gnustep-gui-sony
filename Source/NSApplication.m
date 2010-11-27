@@ -66,6 +66,7 @@
 #include "AppKit/NSCursor.h"
 #include "AppKit/NSDocumentController.h"
 #include "AppKit/NSEvent.h"
+#include "AppKit/SNTouch.h"
 #include "AppKit/NSFontManager.h"
 #include "AppKit/NSImage.h"
 #include "AppKit/NSMenu.h"
@@ -86,6 +87,31 @@
 #include "GNUstepGUI/GSVersion.h"
 #include "NSDocumentFrameworkPrivate.h"
 #include "NSToolbarFrameworkPrivate.h"
+
+void event_handler(application_event_t event)
+{
+        switch(event)
+      {
+      case 0:
+      case 1:
+        application_notify( APPLICATION_STATE_RUNNING );
+        break;
+
+      case 2:
+        application_notify( APPLICATION_STATE_TERMINATED );
+        break;
+
+      case 3:
+        application_notify( APPLICATION_STATE_SUSPENDED );
+        break;
+
+      default:
+        break;
+      }
+
+}
+
+
 
 /* The -gui thread. See the comment in initialize_gnustep_backend. */
 NSThread *GSAppKitThread;
@@ -391,6 +417,12 @@ struct _NSModalSession {
 
 @interface NSAppIconView : NSView
 - (void) setImage: (NSImage *)anImage;
+//
+// Handling touch events... for testing purpose
+//
+- (void) touchesBeganWithEvent: (NSEvent *) theEvent;
+- (void) touchesMovedWithEvent: (NSEvent *) theEvent;
+- (void) touchesEndedWithEvent: (NSEvent *) theEvent;
 @end
 
 @interface NSMenu (HorizontalPrivate)
@@ -530,6 +562,24 @@ static NSSize scaledIconSizeForSize(NSSize imageSize)
   return self;
 }
 
+//
+// Handling touch events... for testing purpose
+//
+- (void) touchesBeganWithEvent: (NSEvent *) theEvent
+{
+   printf("NSAppIconView: touchesBeganWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
+- (void) touchesMovedWithEvent: (NSEvent *) theEvent
+{
+   printf("NSAppIconView: touchesMovedWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
+- (void) touchesEndedWithEvent: (NSEvent *) theEvent
+{
+   printf("NSAppIconView: touchesEndedWithEvent, touch count = %i\n", [theEvent touchCount]);
+}
+
 - (void) mouseDown: (NSEvent*)theEvent
 {
   if ([theEvent clickCount] >= 2)
@@ -582,8 +632,12 @@ static NSSize scaledIconSizeForSize(NSSize imageSize)
     {
       NSPoint	lastLocation;
       NSPoint	location;
+      NSEventType eventType;
       unsigned	eventMask = NSLeftMouseDownMask | NSLeftMouseUpMask
-	| NSPeriodicMask | NSOtherMouseUpMask | NSRightMouseUpMask;
+	| NSPeriodicMask | NSOtherMouseUpMask | NSRightMouseUpMask | SNTouchedMask
+                         | NSRightMouseDownMask | NSLeftMouseDraggedMask; //<p>FIXME</p> rightMouseDown & leftMouseDragged added temporarily for testing
+                                                             //leftMouseDragged needs to stay for correct touch handlers invocations,
+                                                             //or they would be delivered only after mouseUp, a wrong behavior
       NSDate	*theDistantFuture = [NSDate distantFuture];
       BOOL	done = NO;
 
@@ -592,12 +646,25 @@ static NSSize scaledIconSizeForSize(NSSize imageSize)
 
       while (!done)
 	{
+          //printf("NSAppIconView calling nextEventMatchingMask..\n");
 	  theEvent = [NSApp nextEventMatchingMask: eventMask
 					untilDate: theDistantFuture
 					   inMode: NSEventTrackingRunLoopMode
 					  dequeue: YES];
+          eventType = [theEvent type];
 	
-	  switch ([theEvent type])
+          if (eventType == SNTouched) {
+             // We trapped a touch event, re-deliver it
+             //printf("NSAppIconView delivering touch events\n");
+             [NSApp sendEvent: theEvent];
+             if ([theEvent touchCount] > 1) { // We have a multi-touch event, cancel tracking
+                printf("NSAppIconView loop ending... \n");
+                break;
+             }
+             continue;
+          }
+
+	  switch (eventType)
 	    {
 	      case NSRightMouseUp:
 	      case NSOtherMouseUp:
@@ -606,6 +673,8 @@ static NSSize scaledIconSizeForSize(NSSize imageSize)
 		done = YES;
 		break;
 	      case NSPeriodic:
+                //printed continuously when mouse down on bottom left app icon...
+                //printf("NSApplication calling NSWindow mouseLocationOutsideOfEventStream\n"); 
 		location = [_window mouseLocationOutsideOfEventStream];
 		if (NSEqualPoints(location, lastLocation) == NO)
 		  {
@@ -696,6 +765,7 @@ static NSSize scaledIconSizeForSize(NSSize imageSize)
  * -run when the method described above is not sufficient, or to intercept
  * events by overriding -sendEvent: .</p>
  */
+
 @implementation NSApplication
 
 /*
@@ -1139,6 +1209,10 @@ static NSSize scaledIconSizeForSize(NSSize imageSize)
   [nc postNotificationName: NSApplicationDidFinishLaunchingNotification
 		    object: self];
 
+	  NSLog(@"NSApplication: Entered the appReady");
+        	int result=0;
+        	result = application_ready(event_handler);
+		NSLog(@"NSApplication: result %d", result);
   NS_DURING
     {
       [[[NSWorkspace sharedWorkspace] notificationCenter]
@@ -1467,11 +1541,20 @@ static NSSize scaledIconSizeForSize(NSSize imageSize)
       e = [self nextEventMatchingMask: NSAnyEventMask
 		untilDate: distantFuture
 		inMode: NSDefaultRunLoopMode
+                // inMode: NSEventTrackingRunLoopMode
 		dequeue: YES];
+      NSEventType type = [e type];
+      
+      //printf("NSApplication run loop... type = %i, x = %f, y = %f, timestamp = %f\n", [e type], [e locationInWindow].x, [e locationInWindow].y, [e timestamp]);
+      
+      //skip right mouse events
+      if (type == NSRightMouseDown || type == NSRightMouseDragged || type == NSRightMouseUp) {
+         continue;
+      }
       
       if (e != nil &&  e != null_event)
 	{
-	  NSEventType	type = [e type];
+	  //NSEventType	type = [e type];
 
 	  // Catch and report any uncaught exceptions.
 	  NS_DURING
@@ -1944,10 +2027,11 @@ See -runModalForWindow:
   NSEventType type;
 
   type = [theEvent type];
+  //printf("NSApplication sendEvent(): type = %i\n", type);
   switch (type)
     {
-      case NSPeriodic:	/* NSApplication traps the periodic events	*/
-	break;
+      //case NSPeriodic:	/* NSApplication traps the periodic events	*/
+      //  break;
 
       case NSKeyDown:
 	{
@@ -1969,20 +2053,94 @@ See -runModalForWindow:
 
       default:	/* pass all other events to the event's window	*/
 	{
-	  NSWindow	*window = [theEvent window];
+           if (type == SNTouched) 
+           {
+              BOOL hit;
+              int windowArray[10]; //max 10 windows, should be more than enough
+              SNTouch *touch;
 
-	  if (!theEvent)
-	    NSDebugLLog(@"NSEvent", @"NSEvent is nil!\n");
-	  if (type == NSMouseMoved)
-	    NSDebugLLog(@"NSMotionEvent", @"Send move (%d) to window %d", 
-			type, [window windowNumber]);
-	  else
-	    NSDebugLLog(@"NSEvent", @"Send NSEvent type: %d to window %d", 
-			type, [window windowNumber]);
-	  if (window)
-	    [window sendEvent: theEvent];
-	  else if (type == NSRightMouseDown)
-	    [self rightMouseDown: theEvent];
+              int i;
+              for (i = 9; i >=0; i--)
+                 windowArray[i] = 0;
+
+              /*
+               * We deliver a touch event to a window only once.
+               * E.g. Even if an event contains two touches for the same window, we call [window sendEvent] only once
+               */
+              NSEnumerator *enumerator = [theEvent->touches objectEnumerator];
+              while ((touch = [enumerator nextObject])) 
+              {
+                 NSWindow *window = [touch window];
+                 int window_num = [window windowNumber];
+                 i = 0; hit = NO;
+                 do 
+                 {
+                    if (windowArray[i] == 0) 
+                    {  // no match found, add window number to array
+                       windowArray[i] = window_num;
+                       break;
+                    }
+                    if (windowArray[i] == window_num) 
+                    {  // found a match
+                       hit = YES;
+                       break;
+                    }
+                    i++;
+                 } while (i <= 9);
+
+                 if (hit)
+                    continue; // already delivered to this window, skip to next touch
+
+                 [window sendEvent: theEvent];
+              }
+           }
+           else
+           {
+	      NSWindow	*window = [theEvent window];
+
+	      if (!theEvent)
+	        NSDebugLLog(@"NSEvent", @"NSEvent is nil!\n");
+	      if (type == NSMouseMoved)
+	        NSDebugLLog(@"NSMotionEvent", @"Send move (%d) to window %d", 
+		         	type, [window windowNumber]);
+	      else
+	        NSDebugLLog(@"NSEvent", @"Send NSEvent type: %d to window %d", 
+	 	   		type, [window windowNumber]);
+	      if (window) 
+              {
+                 /*** Applications don't filter events for now
+                 if (type == NSLeftMouseDown || type == NSLeftMouseDragged || type == NSLeftMouseUp) 
+                 {
+                    //[window setMultipleTouchEnabled: YES];
+                    // Increment window's mouse count and set first mouse
+                    if (type == NSLeftMouseDown)
+                    {
+                       [window incrementMouseCount];
+                       if ([window mouseCount] == 1)
+                          [window setFirstMouse: [theEvent mouse]];
+                    }
+
+                    // If multipleTouch is not enabled, ignore all but first mouse
+                    if ([window firstMouse] == [theEvent mouse] || [window multipleTouchEnabled])
+                       [window sendEvent: theEvent];
+
+                    // Decrement window's mouse count and unset first mouse
+                    if (type == NSLeftMouseUp)
+                    {
+                       [window decrementMouseCount];
+                       if ([theEvent mouse] == [window firstMouse])
+                           [window setFirstMouse: 0];
+                    }
+                 }
+                 ***/
+                 //else
+                 //{
+                    [window sendEvent: theEvent];
+                 //}   
+              }
+	      else if (type == NSRightMouseDown)
+	        [self rightMouseDown: theEvent];
+           }
 	}
     }
 }
@@ -2026,6 +2184,7 @@ See -runModalForWindow:
 {
   NSEvent	*event;
 
+  //printf("NSApplication nextEventMatchingMask\n");
   if (_windows_need_update)
     {
       [self updateWindows];
@@ -2045,6 +2204,7 @@ IF_NO_GC(NSAssert([event retainCount] > 0, NSInternalInconsistencyException));
        * If we are not in a tracking loop, we may want to unhide a hidden
        * because the mouse has been moved.
        */
+      //printf("nextEventMatchingMask event type = %i\n", [event type]);
       if (mode != NSEventTrackingRunLoopMode && event != null_event)
 	{
 	  _windows_need_update = YES;
@@ -2062,8 +2222,176 @@ IF_NO_GC(NSAssert([event retainCount] > 0, NSInternalInconsistencyException));
 	    }
 	}
 
-      ASSIGN(_current_event, event);
+      //ASSIGN(_current_event, event); //moved to bottom temporarily
+                                       //should uncomment when we don't need to generate fake events
     }
+
+    /*** Begin of fake touch event generating code ***/
+    
+    if (event) {
+      NSEventType type = [event type];
+      if ((type == NSLeftMouseDown || type == NSLeftMouseDragged || type == NSLeftMouseUp ||
+           type == NSRightMouseDown || type == NSRightMouseDragged || type == NSRightMouseUp) && [event subtype] != SNTouchEventSubtype) {
+
+         NSEvent *touchEvent1 = [event copyWithZone: NSDefaultMallocZone()];
+         NSEvent *touchEvent2 = [event copyWithZone: NSDefaultMallocZone()];
+         AUTORELEASE(touchEvent1);
+         AUTORELEASE(touchEvent2);
+         //printf("touchEvent type = %i, x = %f, y = %f\n", [touchEvent type], [touchEvent locationInWindow].x, [touchEvent locationInWindow].y);
+
+         SNTouchPhase phase;
+         switch(type) {
+            case NSLeftMouseDown:
+            case NSRightMouseDown:
+               phase = SNTouchPhaseBegan;
+               break;
+            case NSLeftMouseDragged:
+            case NSRightMouseDragged:
+               phase = SNTouchPhaseMoved;
+               break;
+            case NSLeftMouseUp:
+            case NSRightMouseUp:
+               phase = SNTouchPhaseEnded;
+               break;
+         }
+
+         NSWindow *window = [touchEvent1 window];
+         NSPoint location = [touchEvent1 locationInWindow];
+
+         //initialize touch set
+         //touchEvent1->touches = [NSMutableSet setWithCapacity: 2];
+         touchEvent1->touches = [NSMutableArray arrayWithCapacity: 2];
+         RETAIN(touchEvent1->touches); //need to retain b/c touches get released somewhere between postEvent and getEvent...
+         //touchEvent2->touches = [NSMutableSet setWithCapacity: 2];
+         touchEvent2->touches = [NSMutableArray arrayWithCapacity: 2];
+         RETAIN(touchEvent2->touches); //need to retain b/c touches get released somewhere between postEvent and getEvent...
+
+         SNTouch *touch1 = [SNTouch touchWithIdentity: 1
+                                                phase: phase
+                                               window: window
+                                     locationInWindow: location];
+         //printf("touch1 retainCount = %i\n", [touch1 retainCount]); //prints 1
+         touch1->tapCount = [event clickCount];
+         [touchEvent1->touches addObject: touch1];
+
+         BOOL synchTouches = NO;
+
+         //add 2nd touch only for right mouse
+         if (type == NSRightMouseDown || type == NSRightMouseDragged || type == NSRightMouseUp) {
+            NSPoint location2;
+            //location2 = NSMakePoint((location.x<300)? 300+(300-location.x) : 300-(location.x-300), 
+            //                                (location.y<250)? 250+(250-location.y) : 250-(location.y-250));
+            //location2 = NSMakePoint(location.x, location.y);
+            //location2 = NSMakePoint(location.x + 3, location.y);
+            location2 = NSMakePoint(location.x + 27, location.y + 37);
+            //if (location.x > 37) //horizontal scroller
+            //   location2 = NSMakePoint(20, location.x-15);
+            //else
+            //   location2 = NSMakePoint(location.y+15, 20);
+
+            //NSPoint center = NSMakePoint(178, 328); //launch image
+            //location2 = NSMakePoint((location.x<center.x)? center.x+(center.x-location.x) : center.x-(location.x-center.x), 
+            //                        (location.y<center.y)? center.y+(center.y-location.y) : center.y-(location.y-center.y));
+
+
+            touch1->identity = 2; 
+
+            SNTouch *touch2 = [SNTouch touchWithIdentity: 3 
+                                                   phase: phase
+                                                  window: window
+                                                  //window: [self windowWithWindowNumber: 13]
+                                     locationInWindow: location2];
+         
+            touch2->tapCount = [event clickCount];
+            //printf("touch1 retainCount = %i\n", [touch1 retainCount]); //prints 2
+
+            if (!synchTouches && (type == NSRightMouseDown || type == NSRightMouseUp)) {
+               SNTouch *touch3 = [SNTouch touchWithIdentity: 2 
+                                                      phase: SNTouchPhaseStationary
+                                                     window: window
+                                           locationInWindow: location];
+               [touchEvent2->touches addObject: touch3];
+               [touchEvent2->touches addObject: touch2];
+            }
+            else {
+               [touchEvent1->touches addObject: touch2];
+            }
+
+         } //add 2nd touch for right mouse
+         
+         touchEvent1->event_type = SNTouched;
+         touchEvent2->event_type = SNTouched;
+
+         if (type == NSRightMouseDown || type == NSRightMouseDragged || type == NSRightMouseUp) {
+            
+            NSEvent *mouseEvent1 = [event copyWithZone: NSDefaultMallocZone()];
+            NSEvent *mouseEvent2 = [event copyWithZone: NSDefaultMallocZone()];
+
+            NSEventType newType;
+            switch(type) {
+              case NSRightMouseDown:
+                 newType = NSLeftMouseDown;
+                 break;
+              case NSRightMouseDragged:
+                 newType = NSLeftMouseDragged;
+                 break;
+              case NSRightMouseUp:
+                 newType = NSLeftMouseUp;
+                 break;
+            }
+            mouseEvent1->event_type = newType;
+            mouseEvent2->event_type = newType;
+            mouseEvent1->sub_type = SNTouchEventSubtype;
+            mouseEvent2->sub_type = SNTouchEventSubtype;
+            mouseEvent1->mouse_id = 2;
+            mouseEvent2->mouse_id = 3;
+
+            //mouseEvent2->window_num = 13;
+
+            NSPoint loc = [mouseEvent1 locationInWindow];
+            //mouseEvent2->location_point = NSMakePoint(loc.x, loc.y);
+            mouseEvent2->location_point = NSMakePoint(loc.x + 27, loc.y + 37);
+            //if (loc.x > 37) //horizontal scroller
+            //   mouseEvent2->location_point = NSMakePoint(20, loc.x-15);
+            //else
+            //   mouseEvent2->location_point = NSMakePoint(loc.y+15, 20);
+
+            [self postEvent: mouseEvent2 atStart: YES];
+            
+            if (!synchTouches && type == NSRightMouseDown)
+               [self postEvent: touchEvent2 atStart: YES];
+
+            [self postEvent: mouseEvent1 atStart: YES];
+
+            if (!synchTouches && type == NSRightMouseUp)
+            {
+               event = RETAIN(touchEvent2);
+               [self postEvent: touchEvent1 atStart: YES];
+            }
+            else
+               event = RETAIN(touchEvent1);
+         }
+         else {
+            if (event->mouse_id == 0) //single left mouse event.. set mouse id
+               event->mouse_id = 1;
+
+            if ([event subtype] == NSMouseEventSubtype) {
+               event->sub_type = SNTouchEventSubtype;
+               [self postEvent: event atStart: YES];
+               event = RETAIN(touchEvent1);
+            }
+         }
+      }
+
+    }
+    
+    /*** End of fake touch event generating code ***/
+
+  if (event) {
+     ASSIGN(_current_event, event);
+  }
+
+  //printf("nextEventMatchingMask returns event type = %i\n", [event type]);
   return event;
 }
 
@@ -2075,6 +2403,9 @@ IF_NO_GC(NSAssert([event retainCount] > 0, NSInternalInconsistencyException));
  */
 - (void) postEvent: (NSEvent *)event atStart: (BOOL)flag
 {
+  //printf("NSApplication postEvent\n"); //called continuously when mouse down on app icon or menu
+  //if ([event type] == SNTouched)
+  //   printf("postEvent: event->touches retainCount = %i\n", [event->touches retainCount]);
   DPSPostEvent(GSCurrentServer(), event, flag);
 }
 
